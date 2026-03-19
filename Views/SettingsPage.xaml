@@ -16,5 +16,13 @@
                 <ComboBoxItem Content="浅色" Tag="Light"/>
                 <ComboBoxItem Content="深色" Tag="Dark"/>
             </ComboBox>
+
+            <TextBlock Text="课程表显示范围" FontSize="18" Margin="0,20,0,0"/>
+            <ComboBox x:Name="WeekRangeComboBox"
+                      SelectionChanged="WeekRangeChanged"
+                      Width="240">
+                <ComboBoxItem Content="周一到周五" Tag="5"/>
+                <ComboBoxItem Content="周一到周日" Tag="7"/>
+            </ComboBox>
         </StackPanel>
 </Page>

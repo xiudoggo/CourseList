@@ -32,9 +32,9 @@ namespace CourseList
         private Window? _window;
 
         /// <summary>
-        /// 获取当前活动的主窗口
+        /// 获取当前活动的主窗口（避免与基类成员混淆，使用自定义名称）
         /// </summary>
-        public static new Window? MainWindow => ((App)Current)._window;
+        public static Window? CurrentMainWindow => ((App)Current)._window;
 
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code

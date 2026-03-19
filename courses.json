@@ -13,12 +13,12 @@
     ],
     "Color": "#FF989A",
     "WeekType": 0,
-    "Note": "",
-    "ScheduleDisplay": "\u5468\u4E09 \u7B2C3, 4, 5, 6\u8282"
+    "Note": "12",
+    "ScheduleDisplay": "周三 第3, 4, 5, 6节"
   },
   {
     "Id": 29624,
-    "Name": "\u6570\u636E\u7ED3\u6784",
+    "Name": "数据结构",
     "Teacher": "wxm",
     "Classroom": "N403",
     "DayOfWeek": 1,
@@ -26,9 +26,55 @@
       1,
       2
     ],
-    "Color": "#FFF779",
+    "Color": "#5CFF57",
     "WeekType": 0,
-    "Note": "\u8FD9\u662F\u4E2A\u4E25\u5389\u7684\u8001\u5E08",
-    "ScheduleDisplay": "\u5468\u4E00 \u7B2C1, 2\u8282"
+    "Note": "这是个严厉的老师！！！",
+    "ScheduleDisplay": "周一 第1, 2节"
+  },
+  {
+    "Id": 9745,
+    "Name": "数据库",
+    "Teacher": "zzx",
+    "Classroom": "N113",
+    "DayOfWeek": 1,
+    "ClassPeriods": [
+      3
+    ],
+    "Color": "#FF3B63",
+    "WeekType": 0,
+    "Note": "杀人王",
+    "ScheduleDisplay": "周一 第3节"
+  },
+  {
+    "Id": 81791,
+    "Name": "计网",
+    "Teacher": "老头子",
+    "Classroom": "301",
+    "DayOfWeek": 4,
+    "ClassPeriods": [
+      7,
+      8,
+      9
+    ],
+    "Color": "#7AFBFF",
+    "WeekType": 0,
+    "Note": "很好的老头子，除了会点名以外",
+    "ScheduleDisplay": "周四 第7, 8, 9节"
+  },
+  {
+    "Id": 67657,
+    "Name": "算法",
+    "Teacher": "zdh",
+    "Classroom": "N403",
+    "DayOfWeek": 1,
+    "ClassPeriods": [
+      5,
+      6,
+      7
+    ],
+    "Color": "#0000FF",
+    "WeekType": 0,
+    "Note": "",
+    "ScheduleDisplay": "周一 第5, 6, 7节"
   }
 ]

@@ -2,6 +2,7 @@
     x:Class="CourseList.Views.CourseFormPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    CornerRadius="12"
     Title="新增课程"
     PrimaryButtonText="保存"
     CloseButtonText="取消">

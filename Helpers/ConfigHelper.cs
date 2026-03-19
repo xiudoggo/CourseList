@@ -9,6 +9,8 @@ namespace CourseList.Helpers
     public class AppConfig
     {
         public string Theme { get; set; } = "Default";
+        // 课程表显示范围：5=周一到周五，7=周一到周日
+        public int ScheduleWeekRange { get; set; } = 7;
     }
 
     public static class ConfigHelper

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Text.Json.Serialization;
 
 namespace CourseList.Models
 {
@@ -43,6 +44,35 @@ namespace CourseList.Models
                 var periods = string.Join(", ", ClassPeriods.OrderBy(p => p));
                 return $"{dayName} 第{periods}节";
             }
+        }
+
+        // ====== UI 辅助：每行最多25个字符换行 ======
+        // 这些属性仅用于课程列表卡片显示，不参与 JSON 持久化。
+        [JsonIgnore]
+        public string NameWrapped => WrapEvery25(Name);
+        [JsonIgnore]
+        public string TeacherWrapped => WrapEvery25(Teacher);
+        [JsonIgnore]
+        public string ClassroomWrapped => WrapEvery25(Classroom);
+        [JsonIgnore]
+        public string ScheduleDisplayWrapped => WrapEvery25(ScheduleDisplay);
+        [JsonIgnore]
+        public string NoteWrapped => WrapEvery25(Note);
+
+        private static string WrapEvery25(string? input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return string.Empty;
+
+            const int max = 25;
+            // 按字符下标插入 '\n'，TextBlock 的 Text 属性会呈现成多行。
+            var parts = new List<string>();
+            for (int i = 0; i < input.Length; i += max)
+            {
+                var len = Math.Min(max, input.Length - i);
+                parts.Add(input.Substring(i, len));
+            }
+            return string.Join("\n", parts);
         }
     }
 }

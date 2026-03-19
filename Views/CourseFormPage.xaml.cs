@@ -9,7 +9,7 @@ namespace CourseList.Views
 {
     public sealed partial class CourseFormPage : ContentDialog
     {
-        public Course NewCourse { get; private set; }
+        public Course? NewCourse { get; private set; }
         private Course? _editingCourse;
         private string selectedColor = "#2196F3";
 
@@ -18,7 +18,7 @@ namespace CourseList.Views
             this.InitializeComponent();
             
             // 跟随当前主题
-            if (App.MainWindow.Content is FrameworkElement root)
+            if (App.CurrentMainWindow?.Content is FrameworkElement root)
             {
                 this.RequestedTheme = root.RequestedTheme;
             }
@@ -113,11 +113,17 @@ namespace CourseList.Views
                     return;
                 }
 
-                var dayTag = ((ComboBoxItem)DayCombo.SelectedItem).Tag.ToString();
-                var day = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), dayTag);
+                var dayTag = ((ComboBoxItem)DayCombo.SelectedItem).Tag as string ?? "Monday";
+                if (!Enum.TryParse<DayOfWeek>(dayTag, out var day))
+                {
+                    day = DayOfWeek.Monday;
+                }
 
-                var weekTag = ((ComboBoxItem)WeekTypeCombo.SelectedItem).Tag.ToString();
-                int weekType = int.Parse(weekTag);
+                var weekTag = ((ComboBoxItem)WeekTypeCombo.SelectedItem).Tag as string ?? "0";
+                if (!int.TryParse(weekTag, out var weekType))
+                {
+                    weekType = 0;
+                }
 
                 NewCourse = new Course
                 {

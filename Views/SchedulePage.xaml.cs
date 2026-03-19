@@ -4,6 +4,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Input;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -19,6 +21,9 @@ namespace CourseList.Views
     {
         private List<Course> _courses = new List<Course>();
         private Dictionary<(int day, int period), Border> _cellMap = new();
+        private bool _isScheduleGridInitialized = false;
+        // 5=周一到周五；7=周一到周日
+        private int _scheduleWeekRange = 7;
 
         public SchedulePage()
         {
@@ -31,6 +36,12 @@ namespace CourseList.Views
 
         private async void SchedulePage_Loaded(object sender, RoutedEventArgs e)
         {
+            var config = ConfigHelper.LoadConfig();
+            _scheduleWeekRange = config.ScheduleWeekRange == 5 ? 5 : 7;
+
+            // 先根据配置重建列（周六/周日列删除或保留），再生成课程单元格
+            ApplyWeekRangeVisibility();
+
             await LoadCoursesAsync();
             BuildScheduleGrid();
         }
@@ -42,26 +53,81 @@ namespace CourseList.Views
 
         private void BuildScheduleGrid()
         {
-            // 先清空课程单元格（保留标题和节次）
-            foreach (var cell in _cellMap.Values)
+            EnsureScheduleGridInitialized();
+            ClearAllCourseCells();
+
+            // 填充课程（只更新内容，不重建单元格）
+            foreach (var course in _courses)
             {
-                if (cell != null && ScheduleGrid.Children.Contains(cell))
+                ApplyCourseToCells(course);
+            }
+        }
+
+        private void ApplyWeekRangeVisibility()
+        {
+            // 5天模式：真正删除 Grid 的周六/周日列，让周一到周五的 '*' 列自动铺满。
+            // 同时隐藏 XAML 里的周六/周日表头（row=0, col>=6）。
+            bool showWeekend = _scheduleWeekRange == 7;
+
+            // 0: 节次/星期（固定宽度），1..5: 周一到周五，6..7: 周六到周日
+            int dayColumnCount = showWeekend ? 7 : 5; // 仅指 1..N 这部分
+            int totalColumnCount = 1 + dayColumnCount; // + col=0
+
+            // 重建 ColumnDefinitions（避免残留空白列）
+            ScheduleGrid.ColumnDefinitions.Clear();
+
+            // col=0
+            ScheduleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+
+            // col=1..N
+            for (int col = 1; col <= dayColumnCount; col++)
+            {
+                ScheduleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            }
+
+            // 隐藏 row=0 且落在被删除列上的表头元素
+            if (!showWeekend)
+            {
+                foreach (var child in ScheduleGrid.Children)
                 {
-                    ScheduleGrid.Children.Remove(cell);
+                    if (child is not FrameworkElement fe)
+                        continue;
+
+                    int row = Grid.GetRow(fe);
+                    int col = Grid.GetColumn(fe);
+                    if (row == 0 && col >= 6)
+                        fe.Visibility = Visibility.Collapsed;
                 }
             }
-            _cellMap.Clear();
+        }
 
-            // 生成课程单元格并填充课程
+        private void EnsureScheduleGridInitialized()
+        {
+            if (_isScheduleGridInitialized)
+                return;
+
+            int dayColumnCount = _scheduleWeekRange == 7 ? 7 : 5; // col=1..N
+
+            // 生成课程单元格并绑定通用点击/双击事件（事件逻辑从映射 _courseCellMap 读取当前课程）
             for (int row = 1; row <= 11; row++)
             {
-                for (int col = 1; col <= 7; col++)
+                for (int col = 1; col <= dayColumnCount; col++)
                 {
                     var border = new Border
                     {
                         Style = this.Resources["CourseCellStyle"] as Style,
-                        Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128))
+                        Background = new SolidColorBrush(Colors.Transparent),
+                        CornerRadius = new CornerRadius(6),
+                        Margin = new Thickness(4),
+                        BorderBrush = null,
+                        BorderThickness = new Thickness(0),
+                        RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
+                        RenderTransform = new ScaleTransform { ScaleX = 0.95, ScaleY = 0.95 }
                     };
+
+                    border.PointerPressed += CourseCell_PointerPressed;
+                    border.DoubleTapped += CourseCell_DoubleTapped;
+
                     Grid.SetRow(border, row);
                     Grid.SetColumn(border, col);
                     ScheduleGrid.Children.Add(border);
@@ -69,41 +135,120 @@ namespace CourseList.Views
                 }
             }
 
-            // 填充课程
-            foreach (var course in _courses)
+            _isScheduleGridInitialized = true;
+        }
+
+        private void ClearAllCourseCells()
+        {
+            _courseCellMap.Clear();
+
+            foreach (var border in _cellMap.Values)
             {
-                foreach (var period in course.ClassPeriods)
+                if (border == null)
+                    continue;
+
+                border.Background = new SolidColorBrush(Colors.Transparent);
+                border.Child = null;
+                border.BorderBrush = null;
+                border.BorderThickness = new Thickness(0);
+
+                if (border.RenderTransform is ScaleTransform s)
                 {
-                    int dayOffset = (int)course.DayOfWeek - 1; // Monday=1 -> index 0
-                    if (dayOffset < 0) dayOffset = 6; // Sunday = 7 -> index 6
-                    
-                    var key = (dayOffset + 1, period);
-                    if (_cellMap.TryGetValue(key, out var border) && border != null)
-                    {
-                        border.Background = new SolidColorBrush(ColorHelperFromHex(course.Color));
-                        border.BorderBrush = new SolidColorBrush(Colors.White);
-                        border.BorderThickness = new Thickness(2);
-                        
-                        // 点击选中课程
-                        border.PointerPressed += (s, e) => SelectCourse(course, border);
-                        
-                        // 双击编辑课程
-                        border.DoubleTapped += async (s, e) => await EditCourseByCellAsync(course);
-                        
-                        // 保存映射
-                        _courseCellMap[border] = course;
-                        
-                        border.Child = new TextBlock
-                        {
-                            Text = $"{course.Name}\n{course.Classroom}",
-                            TextWrapping = TextWrapping.Wrap,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            Foreground = new SolidColorBrush(Colors.White),
-                            FontSize = 12
-                        };
-                    }
+                    s.ScaleX = 0.95;
+                    s.ScaleY = 0.95;
                 }
+            }
+        }
+
+        private void ApplyCourseToCells(Course course)
+        {
+            // 只显示工作日：跳过周六/周日课程
+            if (_scheduleWeekRange == 5 &&
+                (course.DayOfWeek == DayOfWeek.Saturday || course.DayOfWeek == DayOfWeek.Sunday))
+            {
+                return;
+            }
+
+            foreach (var period in course.ClassPeriods)
+            {
+                int dayOffset = (int)course.DayOfWeek - 1; // Monday=1 -> index 0
+                if (dayOffset < 0) dayOffset = 6; // Sunday=7 -> index 6
+
+                var key = (dayOffset + 1, period);
+                if (_cellMap.TryGetValue(key, out var border) && border != null)
+                {
+                    border.Background = new SolidColorBrush(ColorHelperFromHex(course.Color));
+                    border.BorderBrush = null;
+                    border.BorderThickness = new Thickness(0);
+                    // 保持初始化阶段设定的圆角/缩放/边距
+
+                    border.Child = new TextBlock
+                    {
+                        Text = $"{course.Name}\n{course.Classroom}",
+                        TextWrapping = TextWrapping.Wrap,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Foreground = new SolidColorBrush(Colors.White),
+                        FontSize = 12
+                    };
+
+                    _courseCellMap[border] = course;
+                }
+            }
+        }
+
+        private void ResetBorderToEmpty(Border border)
+        {
+            if (border == null)
+                return;
+
+            border.Background = new SolidColorBrush(Colors.Transparent);
+            border.Child = null;
+            border.BorderBrush = null;
+            border.BorderThickness = new Thickness(0);
+
+            if (border.RenderTransform is ScaleTransform s)
+            {
+                s.ScaleX = 0.95;
+                s.ScaleY = 0.95;
+            }
+        }
+
+        private void ClearCourseCells(Course course)
+        {
+            foreach (var period in course.ClassPeriods)
+            {
+                int dayOffset = (int)course.DayOfWeek - 1;
+                if (dayOffset < 0) dayOffset = 6;
+
+                var key = (dayOffset + 1, period);
+                if (_cellMap.TryGetValue(key, out var border) && border != null)
+                {
+                    _courseCellMap.Remove(border);
+                    ResetBorderToEmpty(border);
+                }
+            }
+        }
+
+        private void CourseCell_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            if (sender is not Border border)
+                return;
+
+            if (_courseCellMap.TryGetValue(border, out var course))
+            {
+                SelectCourse(course, border);
+            }
+        }
+
+        private async void CourseCell_DoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+        {
+            if (sender is not Border border)
+                return;
+
+            if (_courseCellMap.TryGetValue(border, out var course))
+            {
+                await EditCourseByCellAsync(course);
             }
         }
 
@@ -169,7 +314,7 @@ namespace CourseList.Views
                 XamlRoot = this.XamlRoot
             };
 
-            var result = await dialog.ShowAsync();
+            var result = await ContentDialogGuard.ShowAsync(dialog);
             if (result == ContentDialogResult.Primary)
             {
                 await DeleteCourseAsync(SelectedCourse.Id);
@@ -183,22 +328,29 @@ namespace CourseList.Views
             var dialog = new CourseFormPage(course);
             dialog.XamlRoot = this.XamlRoot;
             
-            var result = await dialog.ShowAsync();
+            var result = await ContentDialogGuard.ShowAsync(dialog);
 
             if (result == ContentDialogResult.Primary && dialog.NewCourse != null)
             {
+                bool success = false;
                 if (course == null)
                 {
                     // 新增
-                    await AddCourseAsync(dialog.NewCourse);
-                    ShowToast("课程已添加");
+                    success = await AddCourseAsync(dialog.NewCourse);
+                    if (success)
+                    {
+                        ShowToast("课程已添加");
+                    }
                 }
                 else
                 {
                     // 编辑
                     dialog.NewCourse.Id = course.Id; // 保持原有ID
-                    await UpdateCourseAsync(dialog.NewCourse);
-                    ShowToast("课程已更新");
+                    success = await UpdateCourseAsync(dialog.NewCourse);
+                    if (success)
+                    {
+                        ShowToast("课程已更新");
+                    }
                 }
             }
         }
@@ -209,29 +361,57 @@ namespace CourseList.Views
             await ShowCourseFormAsync(course);
         }
 
-        public async Task AddCourseAsync(Course course)
+        public async Task<bool> AddCourseAsync(Course course)
         {
+            // 冲突检测：同一天、节次重叠（且不是不同“周类型”的完全错开）
+            var conflict = CourseConflictHelper.FindConflictCourse(_courses, course, excludeCourseId: null);
+            if (conflict != null)
+            {
+                await ShowConflictDialogAsync(course, conflict);
+                return false;
+            }
+
             _courses.Add(course);
             await CourseDataHelper.SaveCoursesAsync(_courses);
-            BuildScheduleGrid();
+            // 只更新受影响的单元格
+            ClearCourseCells(course);
+            ApplyCourseToCells(course);
+            return true;
         }
 
         public async Task DeleteCourseAsync(int courseId)
         {
+            var target = _courses.Find(c => c.Id == courseId);
+            if (target == null)
+                return;
+
+            ClearCourseCells(target);
             _courses.RemoveAll(c => c.Id == courseId);
             await CourseDataHelper.SaveCoursesAsync(_courses);
-            BuildScheduleGrid();
         }
 
-        public async Task UpdateCourseAsync(Course course)
+        public async Task<bool> UpdateCourseAsync(Course course)
         {
             var index = _courses.FindIndex(c => c.Id == course.Id);
             if (index >= 0)
             {
+                // 冲突检测（排除自身）
+                var conflict = CourseConflictHelper.FindConflictCourse(_courses, course, excludeCourseId: course.Id);
+                if (conflict != null)
+                {
+                    await ShowConflictDialogAsync(course, conflict);
+                    return false;
+                }
+
+                var oldCourse = _courses[index];
+                ClearCourseCells(oldCourse);
                 _courses[index] = course;
                 await CourseDataHelper.SaveCoursesAsync(_courses);
-                BuildScheduleGrid();
+                ApplyCourseToCells(course);
+                return true;
             }
+
+            return false;
         }
 
         private void ShowToast(string message)
@@ -243,7 +423,26 @@ namespace CourseList.Views
                 CloseButtonText = "确定",
                 XamlRoot = this.XamlRoot
             };
-            _ = toast.ShowAsync();
+            _ = ContentDialogGuard.ShowAsync(toast);
+        }
+
+        // FindConflictCourse 已抽取到 Helpers/CourseConflictHelper.cs
+
+        /// <summary>
+        /// 提示用户课程时间冲突
+        /// </summary>
+        private async Task ShowConflictDialogAsync(Course newCourse, Course conflictCourse)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "时间冲突",
+                Content = $"课程 \"{newCourse.Name}\" 的上课时间与已存在的课程 \"{conflictCourse.Name}\" 冲突。\n\n" +
+                          "请修改节次或周类型后再保存。",
+                CloseButtonText = "确定",
+                XamlRoot = this.XamlRoot
+            };
+
+            await ContentDialogGuard.ShowAsync(dialog);
         }
 
         /// <summary>
@@ -271,35 +470,23 @@ namespace CourseList.Views
             // 获取 ScaleTransform
             var scaleTransform = (ScaleTransform)ExpandedPanel.RenderTransform;
             
-            try
+            // 使用 XAML Storyboard 动画 ScaleTransform.ScaleX，时长适中（500ms），从 0 → 1
+            scaleTransform.ScaleX = 0;
+            var storyboard = new Storyboard();
+            var animation = new DoubleAnimation
             {
-                // 创建动画
-                var visual = ElementCompositionPreview.GetElementVisual(ExpandedPanel);
-                var compositor = visual.Compositor;
-
-                // 创建缩放动画
-                var scaleAnimation = compositor.CreateVector3KeyFrameAnimation();
-                scaleAnimation.Target = "Scale";
-                scaleAnimation.InsertKeyFrame(0f, new System.Numerics.Vector3(0, 1, 1));
-                scaleAnimation.InsertKeyFrame(1f, new System.Numerics.Vector3(1, 1, 1));
-                scaleAnimation.Duration = TimeSpan.FromMilliseconds(300);
-                
-                // 设置动画插值器（使动画更流畅）
-                var cubicBezier = compositor.CreateCubicBezierEasingFunction(new System.Numerics.Vector2(0.4f, 0f), new System.Numerics.Vector2(0.2f, 1f));
-                scaleAnimation.InsertKeyFrame(0.7f, new System.Numerics.Vector3(1.05f, 1, 1), cubicBezier);
-                
-                // 在 UIElement 上启动动画
-                visual.StartAnimation("Scale.X", scaleAnimation);
-            }
-            catch
-            {
-                // 如果动画失败，直接显示
-                scaleTransform.ScaleX = 1;
-            }
+                From = 0,
+                To = 1,
+                Duration = new Duration(TimeSpan.FromMilliseconds(400)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(animation, scaleTransform);
+            Storyboard.SetTargetProperty(animation, "ScaleX");
+            storyboard.Children.Add(animation);
+            storyboard.Begin();
             
-            // 旋转箭头到 90 度（指向下）
-            var arrowIcon = (FontIcon)ToggleFloatBtn.Content;
-            arrowIcon.RenderTransform = new RotateTransform { Angle = 90 };
+            // 展开后：让箭头指向右（表示“收起/返回”），且始终以中心旋转
+            ToggleIconRotate.Angle = 180;
         }
 
         /// <summary>
@@ -309,37 +496,27 @@ namespace CourseList.Views
         {
             var scaleTransform = (ScaleTransform)ExpandedPanel.RenderTransform;
             
-            try
+            // 使用 XAML Storyboard 动画 ScaleTransform.ScaleX，时长适中（500ms），从 1 → 0
+            var storyboard = new Storyboard();
+            var animation = new DoubleAnimation
             {
-                // 创建动画
-                var visual = ElementCompositionPreview.GetElementVisual(ExpandedPanel);
-                var compositor = visual.Compositor;
+                From = 1,
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(350)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            };
+            Storyboard.SetTarget(animation, scaleTransform);
+            Storyboard.SetTargetProperty(animation, "ScaleX");
+            storyboard.Children.Add(animation);
+            storyboard.Begin();
 
-                // 创建缩放动画
-                var scaleAnimation = compositor.CreateVector3KeyFrameAnimation();
-                scaleAnimation.Target = "Scale";
-                scaleAnimation.InsertKeyFrame(0f, new System.Numerics.Vector3(1, 1, 1));
-                scaleAnimation.InsertKeyFrame(1f, new System.Numerics.Vector3(0, 1, 1));
-                scaleAnimation.Duration = TimeSpan.FromMilliseconds(200);
-                
-                // 在 UIElement 上启动动画
-                visual.StartAnimation("Scale.X", scaleAnimation);
-                
-                // 等待动画完成后隐藏
-                await Task.Delay(200);
-                ExpandedPanel.Visibility = Visibility.Collapsed;
-                scaleTransform.ScaleX = 0; // 重置缩放值
-            }
-            catch
-            {
-                // 如果动画失败，直接隐藏
-                ExpandedPanel.Visibility = Visibility.Collapsed;
-                scaleTransform.ScaleX = 0;
-            }
+            // 等待动画结束后再隐藏（与动画时长保持一致）
+            await Task.Delay(350);
+            ExpandedPanel.Visibility = Visibility.Collapsed;
+            scaleTransform.ScaleX = 0;
             
-            // 重置箭头方向（指向左）
-            var arrowIcon = (FontIcon)ToggleFloatBtn.Content;
-            arrowIcon.RenderTransform = null;
+            // 收起后：恢复箭头指向左
+            ToggleIconRotate.Angle = 0;
         }
 
         /// <summary>
@@ -348,22 +525,117 @@ namespace CourseList.Views
         private void SelectCourse(Course course, Border border)
         {
             // 先清除之前的选中状态
+            ClearCourseSelection();
+
+            // 设置新的选中状态：略放大，并使用与背景有对比但不刺眼的描边（带动画放大）
+            SelectedCourse = course;
+            AnimateCourseScale(border, 1.05, 150);
+
+            // 使用系统强调色做半透明描边，兼容浅色/深色
+            Color accentColor = Colors.Gray;
+            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accentObj) &&
+                accentObj is Color accent)
+            {
+                accentColor = accent;
+            }
+            border.BorderBrush = new SolidColorBrush(Color.FromArgb(180, accentColor.R, accentColor.G, accentColor.B));
+            border.BorderThickness = new Thickness(2);
+        }
+
+        /// <summary>
+        /// 清除当前课程选中状态（用于点击空白区域或切换选中）
+        /// </summary>
+        private void ClearCourseSelection()
+        {
+            SelectedCourse = null;
+
             if (_courseCellMap != null)
             {
                 foreach (var cell in _courseCellMap)
                 {
                     if (cell.Key != null)
                     {
-                        cell.Key.BorderBrush = new SolidColorBrush(Colors.White);
-                        cell.Key.BorderThickness = new Thickness(2);
+                        AnimateCourseScale(cell.Key, 0.95, 120);
+                        cell.Key.BorderThickness = new Thickness(0);
+                        cell.Key.BorderBrush = null;
                     }
                 }
             }
-            
-            // 设置新的选中状态
-            SelectedCourse = course;
-            border.BorderBrush = new SolidColorBrush(Colors.Yellow);
-            border.BorderThickness = new Thickness(3);
+        }
+
+        /// <summary>
+        /// 为课程单元格执行缩放动画（用于选中/取消选中）
+        /// </summary>
+        private void AnimateCourseScale(Border border, double targetScale, int durationMs)
+        {
+            if (border == null)
+                return;
+
+            if (border.RenderTransform is not ScaleTransform scaleTransform)
+            {
+                scaleTransform = new ScaleTransform { ScaleX = 1.0, ScaleY = 1.0 };
+                border.RenderTransform = scaleTransform;
+                border.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
+            }
+
+            var storyboard = new Storyboard();
+
+            var animX = new DoubleAnimation
+            {
+                To = targetScale,
+                Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(animX, scaleTransform);
+            Storyboard.SetTargetProperty(animX, "ScaleX");
+
+            var animY = new DoubleAnimation
+            {
+                To = targetScale,
+                Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(animY, scaleTransform);
+            Storyboard.SetTargetProperty(animY, "ScaleY");
+
+            storyboard.Children.Add(animX);
+            storyboard.Children.Add(animY);
+            storyboard.Begin();
+        }
+
+        /// <summary>
+        /// 点击课程表空白区域时，取消选中
+        /// </summary>
+        private void ScheduleGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            // 判断点击是否落在某个课程卡片 Border 上，如果是则不清除选中
+            if (e.OriginalSource is DependencyObject source)
+            {
+                var border = FindParentCourseBorder(source);
+                if (border != null && _courseCellMap.ContainsKey(border))
+                {
+                    // 点击在课程组件内部，保持现有选中逻辑
+                    return;
+                }
+            }
+
+            // 点击在空白区域或非课程元素上，清除选中
+            ClearCourseSelection();
+        }
+
+        private Border? FindParentCourseBorder(DependencyObject? element)
+        {
+            while (element != null)
+            {
+                if (element is Border border && _courseCellMap.ContainsKey(border))
+                {
+                    return border;
+                }
+
+                element = VisualTreeHelper.GetParent(element);
+            }
+
+            return null;
         }
 
         #endregion

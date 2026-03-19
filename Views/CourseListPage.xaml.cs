@@ -2,8 +2,12 @@ using CourseList.Models;
 using CourseList.Helpers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace CourseList.Views
@@ -12,6 +16,12 @@ namespace CourseList.Views
     {
         private List<Course> _courses = new List<Course>();
         private Course? _selectedCourse;
+        private Border? _selectedCardBorder;
+
+        private string _searchText = string.Empty;
+        private DayOfWeek? _dayFilter;
+        private int? _weekTypeFilter;
+        private int? _periodFilter;
 
         public CourseListPage()
         {
@@ -27,10 +37,7 @@ namespace CourseList.Views
         private async Task LoadCoursesAsync()
         {
             _courses = await CourseDataHelper.LoadCoursesAsync();
-            CourseRepeater.ItemsSource = _courses;
-            
-            // 显示/隐藏空状态
-            EmptyText.Visibility = _courses.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            ApplyFiltersToList();
         }
 
         private async void AddBtn_Click(object sender, RoutedEventArgs e)
@@ -65,7 +72,7 @@ namespace CourseList.Views
                 XamlRoot = this.XamlRoot
             };
 
-            var result = await dialog.ShowAsync();
+            var result = await ContentDialogGuard.ShowAsync(dialog);
             if (result == ContentDialogResult.Primary)
             {
                 await DeleteCourseAsync(_selectedCourse.Id);
@@ -79,29 +86,44 @@ namespace CourseList.Views
             var dialog = new CourseFormPage(course);
             dialog.XamlRoot = this.XamlRoot;
 
-            var result = await dialog.ShowAsync();
+            var result = await ContentDialogGuard.ShowAsync(dialog);
 
             if (result == ContentDialogResult.Primary && dialog.NewCourse != null)
             {
+                bool success = false;
                 if (course == null)
                 {
-                    await AddCourseAsync(dialog.NewCourse);
-                    ShowToast("课程已添加");
+                    success = await AddCourseAsync(dialog.NewCourse);
+                    if (success)
+                    {
+                        ShowToast("课程已添加");
+                    }
                 }
                 else
                 {
                     dialog.NewCourse.Id = course.Id;
-                    await UpdateCourseAsync(dialog.NewCourse);
-                    ShowToast("课程已更新");
+                    success = await UpdateCourseAsync(dialog.NewCourse);
+                    if (success)
+                    {
+                        ShowToast("课程已更新");
+                    }
                 }
             }
         }
 
-        private async Task AddCourseAsync(Course course)
+        private async Task<bool> AddCourseAsync(Course course)
         {
+            var conflict = CourseConflictHelper.FindConflictCourse(_courses, course, excludeCourseId: null);
+            if (conflict != null)
+            {
+                await ShowConflictDialogAsync(course, conflict);
+                return false;
+            }
+
             _courses.Add(course);
             await CourseDataHelper.SaveCoursesAsync(_courses);
             RefreshList();
+            return true;
         }
 
         private async Task DeleteCourseAsync(int courseId)
@@ -111,22 +133,124 @@ namespace CourseList.Views
             RefreshList();
         }
 
-        private async Task UpdateCourseAsync(Course course)
+        private async Task<bool> UpdateCourseAsync(Course course)
         {
             var index = _courses.FindIndex(c => c.Id == course.Id);
             if (index >= 0)
             {
+                var conflict = CourseConflictHelper.FindConflictCourse(_courses, course, excludeCourseId: course.Id);
+                if (conflict != null)
+                {
+                    await ShowConflictDialogAsync(course, conflict);
+                    return false;
+                }
+
                 _courses[index] = course;
                 await CourseDataHelper.SaveCoursesAsync(_courses);
                 RefreshList();
+                return true;
             }
+
+            return false;
         }
 
         private void RefreshList()
         {
+            ApplyFiltersToList();
+        }
+
+        private void ApplyFiltersToList()
+        {
+            // XAML 初始化阶段可能会触发 SelectionChanged（例如 SelectedIndex=0）。
+            // 这时 x:Name 字段还未完成赋值，因此需要防止空引用崩溃。
+            if (CourseRepeater == null || EmptyText == null)
+                return;
+
+            // 刷新后旧的 Border 引用已失效，避免对不存在的 UI 做修改
+            _selectedCardBorder = null;
+
+            IEnumerable<Course> query = _courses;
+
+            if (_dayFilter.HasValue)
+                query = query.Where(c => c.DayOfWeek == _dayFilter.Value);
+
+            if (_weekTypeFilter.HasValue)
+                query = query.Where(c => c.WeekType == _weekTypeFilter.Value);
+
+            if (_periodFilter.HasValue)
+                query = query.Where(c => c.ClassPeriods.Contains(_periodFilter.Value));
+
+            if (!string.IsNullOrWhiteSpace(_searchText))
+            {
+                var s = _searchText.Trim();
+                query = query.Where(c =>
+                    (!string.IsNullOrEmpty(c.Name) && c.Name.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(c.Teacher) && c.Teacher.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(c.Classroom) && c.Classroom.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(c.Note) && c.Note.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(c.ScheduleDisplay) && c.ScheduleDisplay.Contains(s, StringComparison.OrdinalIgnoreCase))
+                );
+            }
+
+            var filtered = query.ToList();
+
             CourseRepeater.ItemsSource = null;
-            CourseRepeater.ItemsSource = _courses;
-            EmptyText.Visibility = _courses.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            CourseRepeater.ItemsSource = filtered;
+            EmptyText.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void SearchBox_TextChanged(object sender, Microsoft.UI.Xaml.Controls.TextChangedEventArgs e)
+        {
+            _searchText = SearchBox.Text ?? string.Empty;
+            ApplyFiltersToList();
+        }
+
+        private void FilterCombo_SelectionChanged(object sender, Microsoft.UI.Xaml.Controls.SelectionChangedEventArgs e)
+        {
+            // 使用 sender 自身解析变更的 ComboBox，避免依赖字段引用在初始化时为 null 导致崩溃。
+            if (sender is not ComboBox combo)
+                return;
+
+            var header = combo.Header?.ToString();
+            if (combo.SelectedItem is not ComboBoxItem selectedItem)
+            {
+                ApplyFiltersToList();
+                return;
+            }
+
+            var tag = selectedItem.Tag as string;
+            if (string.IsNullOrEmpty(tag) || tag == "All")
+            {
+                if (header == "星期")
+                    _dayFilter = null;
+                else if (header == "周类型")
+                    _weekTypeFilter = null;
+                else if (header == "包含节次")
+                    _periodFilter = null;
+                ApplyFiltersToList();
+                return;
+            }
+
+            if (header == "星期")
+            {
+                // Tag: Monday/Tuesday/...
+                if (Enum.TryParse<DayOfWeek>(tag, out var day))
+                    _dayFilter = day;
+            }
+            else if (header == "周类型")
+            {
+                // Tag: 0/1/2
+                if (int.TryParse(tag, out var weekType))
+                    _weekTypeFilter = weekType;
+            }
+            else if (header == "包含节次")
+            {
+                // Tag: 1..11
+                if (int.TryParse(tag, out var period))
+                    _periodFilter = period;
+            }
+
+            ApplyFiltersToList();
         }
 
         private void ShowToast(string message)
@@ -138,7 +262,22 @@ namespace CourseList.Views
                 CloseButtonText = "确定",
                 XamlRoot = this.XamlRoot
             };
-            _ = toast.ShowAsync();
+            _ = ContentDialogGuard.ShowAsync(toast);
+        }
+
+        // FindConflictCourse 已抽取到 Helpers/CourseConflictHelper.cs
+
+        private async Task ShowConflictDialogAsync(Course newCourse, Course conflictCourse)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "时间冲突",
+                Content = $"课程 \"{newCourse.Name}\" 的上课时间与已存在的课程 \"{conflictCourse.Name}\" 冲突。\n\n请修改节次或周类型后再保存。",
+                CloseButtonText = "确定",
+                XamlRoot = this.XamlRoot
+            };
+
+            await ContentDialogGuard.ShowAsync(dialog);
         }
 
         /// <summary>
@@ -147,6 +286,41 @@ namespace CourseList.Views
         public void SelectCourse(Course course)
         {
             _selectedCourse = course;
+        }
+
+        /// <summary>
+        /// 列表中点击课程卡片时选中，并高亮边框
+        /// </summary>
+        private void CourseCard_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is not Border border)
+                return;
+
+            if (border.Tag is not Course course)
+                return;
+
+            // 还原之前选中的卡片样式
+            if (_selectedCardBorder != null && _selectedCardBorder != border)
+            {
+                _selectedCardBorder.BorderThickness = new Thickness(1);
+                if (Application.Current.Resources.TryGetValue("CardStrokeColorDefaultBrush", out var defaultBrushObj) &&
+                    defaultBrushObj is Brush defaultBrush)
+                {
+                    _selectedCardBorder.BorderBrush = defaultBrush;
+                }
+            }
+
+            // 设置当前选中
+            _selectedCourse = course;
+            _selectedCardBorder = border;
+
+            // 使用系统强调色高亮当前卡片边框
+            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accentObj) &&
+                accentObj is Color accentColor)
+            {
+                border.BorderBrush = new SolidColorBrush(accentColor);
+                border.BorderThickness = new Thickness(2);
+            }
         }
     }
 }

@@ -16,6 +16,9 @@ using CourseList.Views;
 using WinRT.Interop;
 using System.Diagnostics;
 using CourseList.Helpers;
+using Microsoft.UI;
+using Microsoft.UI.Windowing;
+
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
