@@ -1,0 +1,34 @@
+[
+  {
+    "Id": 18301,
+    "Name": "2",
+    "Teacher": "2",
+    "Classroom": "222",
+    "DayOfWeek": 3,
+    "ClassPeriods": [
+      3,
+      4,
+      5,
+      6
+    ],
+    "Color": "#FF989A",
+    "WeekType": 0,
+    "Note": "",
+    "ScheduleDisplay": "\u5468\u4E09 \u7B2C3, 4, 5, 6\u8282"
+  },
+  {
+    "Id": 29624,
+    "Name": "\u6570\u636E\u7ED3\u6784",
+    "Teacher": "wxm",
+    "Classroom": "N403",
+    "DayOfWeek": 1,
+    "ClassPeriods": [
+      1,
+      2
+    ],
+    "Color": "#FFF779",
+    "WeekType": 0,
+    "Note": "\u8FD9\u662F\u4E2A\u4E25\u5389\u7684\u8001\u5E08",
+    "ScheduleDisplay": "\u5468\u4E00 \u7B2C1, 2\u8282"
+  }
+]

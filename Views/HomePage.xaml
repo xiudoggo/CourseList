@@ -1,0 +1,21 @@
+<Page
+    x:Class="CourseList.Views.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:CourseList.Views">
+
+    <ScrollViewer>
+        <StackPanel Spacing="20" Padding="20">
+
+            <TextBlock Text="👋 欢迎回来"
+                       FontSize="28"
+                       FontWeight="Bold"/>
+
+            <TextBlock Text="今天是你的学习日！"
+                       FontSize="28"/>
+
+            
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>

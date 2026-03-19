@@ -1,0 +1,33 @@
+<Page
+    x:Class="CourseList.Views.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:CourseList.Views"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <!-- 主体 NavigationView -->
+        <muxc:NavigationView x:Name="NavView"
+                             Grid.Row="1"
+                             PaneDisplayMode="Left"
+                             OpenPaneLength="200"
+                             CompactPaneLength="48"
+                             IsBackButtonVisible="Collapsed"
+                             IsSettingsVisible="False"
+                             SelectionChanged="NavView_SelectionChanged">
+
+            <muxc:NavigationView.MenuItems>
+                <muxc:NavigationViewItem Icon="Home" Content="首页" Tag="HomePage"/>
+                <muxc:NavigationViewItem Icon="Calendar" Content="课程表" Tag="SchedulePage"/>
+                <muxc:NavigationViewItem Icon="List" Content="课程列表" Tag="CourseListPage"/>
+                <muxc:NavigationViewItem Icon="Setting" Content="设置" Tag="SettingsPage"/>
+            </muxc:NavigationView.MenuItems>
+
+            <Frame x:Name="ContentFrame"/>
+        </muxc:NavigationView>
+    </Grid>
+</Page>
