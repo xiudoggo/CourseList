@@ -4,6 +4,7 @@ using System;
 using System.Linq;
 using Windows.UI;
 using Microsoft.UI.Xaml;
+using CourseList.Helpers;
 
 namespace CourseList.Views
 {
@@ -12,10 +13,13 @@ namespace CourseList.Views
         public Course? NewCourse { get; private set; }
         private Course? _editingCourse;
         private string selectedColor = "#2196F3";
+        private int _maxPeriods = 11;
 
         public CourseFormPage(Course? course = null)
         {
             this.InitializeComponent();
+
+            _maxPeriods = ConfigHelper.LoadConfig().PeriodCount;
             
             // 跟随当前主题
             if (App.CurrentMainWindow?.Content is FrameworkElement root)
@@ -104,7 +108,7 @@ namespace CourseList.Views
                 var periods = PeriodsBox.Text
                     .Split(',', StringSplitOptions.RemoveEmptyEntries)
                     .Select(s => int.TryParse(s.Trim(), out var n) ? n : -1)
-                    .Where(n => n >= 1 && n <= 11)
+                    .Where(n => n >= 1 && n <= _maxPeriods)
                     .ToList();
 
                 if (periods.Count == 0)

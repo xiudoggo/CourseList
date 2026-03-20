@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Windows.UI;
 using System.IO;
 using Microsoft.UI;
+using Microsoft.UI.Text;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml.Hosting;
 
@@ -24,6 +25,8 @@ namespace CourseList.Views
         private bool _isScheduleGridInitialized = false;
         // 5=周一到周五；7=周一到周日
         private int _scheduleWeekRange = 7;
+        private int _periodCount = 11;
+        private List<string> _periodTimeRanges = new List<string>();
 
         public SchedulePage()
         {
@@ -38,11 +41,14 @@ namespace CourseList.Views
         {
             var config = ConfigHelper.LoadConfig();
             _scheduleWeekRange = config.ScheduleWeekRange == 5 ? 5 : 7;
+            _periodCount = config.PeriodCount;
+            _periodTimeRanges = config.PeriodTimeRanges ?? new List<string>();
 
             // 先根据配置重建列（周六/周日列删除或保留），再生成课程单元格
             ApplyWeekRangeVisibility();
 
             await LoadCoursesAsync();
+            RebuildScheduleLayout();
             BuildScheduleGrid();
         }
 
@@ -101,6 +107,97 @@ namespace CourseList.Views
             }
         }
 
+        private void RebuildScheduleLayout()
+        {
+            // 删除旧的动态内容：课程格 + 旧的“节次/时间”首列
+            var toRemove = new List<UIElement>();
+            foreach (var child in ScheduleGrid.Children)
+            {
+                if (child is not FrameworkElement fe)
+                    continue;
+
+                // row=0 是星期标题行，其它全部清掉再重建
+                if (Grid.GetRow(fe) >= 1)
+                    toRemove.Add(child);
+            }
+
+            foreach (var child in toRemove)
+                ScheduleGrid.Children.Remove(child);
+
+            ScheduleGrid.RowDefinitions.Clear();
+
+            // header row
+            ScheduleGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(50) });
+            // period rows
+            for (int row = 1; row <= _periodCount; row++)
+                ScheduleGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(90) });
+
+            _cellMap.Clear();
+            _courseCellMap.Clear();
+            _isScheduleGridInitialized = false;
+
+            BuildPeriodHeaderCells();
+        }
+
+        private void BuildPeriodHeaderCells()
+        {
+            var headerBg = this.Resources["ScheduleHeaderBrush"] as Brush;
+            var headerTextBrush = this.Resources["ScheduleHeaderTextBrush"] as Brush;
+            var cellStyle = this.Resources["CourseCellStyle"] as Style;
+
+            for (int period = 1; period <= _periodCount; period++)
+            {
+                string timeText = _periodTimeRanges.Count >= period
+                    ? _periodTimeRanges[period - 1]
+                    : string.Empty;
+
+                var border = new Border
+                {
+                    Style = cellStyle,
+                    Background = headerBg,
+                    BorderBrush = null,
+                    BorderThickness = new Thickness(0),
+                    CornerRadius = new CornerRadius(0)
+                };
+                Grid.SetRow(border, period);
+                Grid.SetColumn(border, 0);
+
+                var stack = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                var numText = new TextBlock
+                {
+                    Text = period.ToString(),
+                    FontWeight = FontWeights.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+
+                var timeBlock = new TextBlock
+                {
+                    Text = timeText ?? string.Empty,
+                    FontSize = 12,
+                    Foreground = headerTextBrush,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap
+                };
+
+                if (string.IsNullOrWhiteSpace(timeText))
+                    timeBlock.Visibility = Visibility.Collapsed;
+
+                stack.Children.Add(numText);
+                stack.Children.Add(timeBlock);
+
+                border.Child = stack;
+                ScheduleGrid.Children.Add(border);
+            }
+        }
+
         private void EnsureScheduleGridInitialized()
         {
             if (_isScheduleGridInitialized)
@@ -109,7 +206,7 @@ namespace CourseList.Views
             int dayColumnCount = _scheduleWeekRange == 7 ? 7 : 5; // col=1..N
 
             // 生成课程单元格并绑定通用点击/双击事件（事件逻辑从映射 _courseCellMap 读取当前课程）
-            for (int row = 1; row <= 11; row++)
+            for (int row = 1; row <= _periodCount; row++)
             {
                 for (int col = 1; col <= dayColumnCount; col++)
                 {
@@ -182,15 +279,44 @@ namespace CourseList.Views
                     border.BorderThickness = new Thickness(0);
                     // 保持初始化阶段设定的圆角/缩放/边距
 
-                    border.Child = new TextBlock
+                    border.Child = new StackPanel
                     {
-                        Text = $"{course.Name}\n{course.Classroom}",
-                        TextWrapping = TextWrapping.Wrap,
+                        Orientation = Orientation.Vertical,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
-                        Foreground = new SolidColorBrush(Colors.White),
-                        FontSize = 12
+                        Spacing = 2
                     };
+
+                    if (border.Child is StackPanel sp)
+                    {
+                        sp.Children.Add(new TextBlock
+                        {
+                            Text = course.Name,
+                            TextWrapping = TextWrapping.Wrap,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            Foreground = new SolidColorBrush(Colors.White),
+                            FontSize = 16,
+                            FontWeight = FontWeights.SemiBold
+                        });
+
+                        sp.Children.Add(new TextBlock
+                        {
+                            Text = course.Teacher,
+                            TextWrapping = TextWrapping.Wrap,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            Foreground = new SolidColorBrush(Colors.White),
+                            FontSize = 14
+                        });
+
+                        sp.Children.Add(new TextBlock
+                        {
+                            Text = course.Classroom,
+                            TextWrapping = TextWrapping.Wrap,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            Foreground = new SolidColorBrush(Colors.White),
+                            FontSize = 14
+                        });
+                    }
 
                     _courseCellMap[border] = course;
                 }

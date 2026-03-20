@@ -68,21 +68,7 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- 行定义：标题行 + 11节 -->
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="50"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="70"/>
-                </Grid.RowDefinitions>
+                <!-- 行定义：由代码根据 PeriodCount 动态生成 -->
 
                 <!-- 星期标题：颜色与背景同色系，适配深浅色 -->
                 <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
@@ -110,42 +96,7 @@
                     <TextBlock Text="星期日" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource ScheduleHeaderTextBrush}"/>
                 </Border>
 
-                <!-- 节次编号：使用与标题相同的首列背景 -->
-                <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="1" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="2" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="3" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="3" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="4" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="4" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="5" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="5" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="6" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="6" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="7" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="7" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="8" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="8" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="9" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="9" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="10" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="10" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-                <Border Grid.Row="11" Grid.Column="0" Style="{StaticResource CourseCellStyle}" Background="{ThemeResource ScheduleHeaderBrush}">
-                    <TextBlock Text="11" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold"/>
-                </Border>
-
-                <!-- 课程单元格将通过代码生成 -->
+                <!-- 节次标题与课程单元格将通过代码生成 -->
                 </Grid>
             </ScrollViewer>
         </Border>

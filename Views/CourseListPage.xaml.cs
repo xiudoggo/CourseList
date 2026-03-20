@@ -22,11 +22,32 @@ namespace CourseList.Views
         private DayOfWeek? _dayFilter;
         private int? _weekTypeFilter;
         private int? _periodFilter;
+        private int _maxPeriods = 11;
 
         public CourseListPage()
         {
             this.InitializeComponent();
+
+            var config = ConfigHelper.LoadConfig();
+            _maxPeriods = config.PeriodCount;
+            RebuildPeriodFilterCombo();
+
             Loaded += CourseListPage_Loaded;
+        }
+
+        private void RebuildPeriodFilterCombo()
+        {
+            if (PeriodFilterCombo == null)
+                return;
+
+            PeriodFilterCombo.Items.Clear();
+            PeriodFilterCombo.Items.Add(new ComboBoxItem { Content = "全部", Tag = "All" });
+            for (int i = 1; i <= _maxPeriods; i++)
+            {
+                PeriodFilterCombo.Items.Add(new ComboBoxItem { Content = i.ToString(), Tag = i.ToString() });
+            }
+
+            PeriodFilterCombo.SelectedIndex = 0;
         }
 
         private async void CourseListPage_Loaded(object sender, RoutedEventArgs e)

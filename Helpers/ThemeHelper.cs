@@ -62,8 +62,19 @@ public static class ThemeHelper
 
             if (appWindow?.TitleBar != null)
             {
+                // 设置前景色
                 appWindow.TitleBar.ButtonForegroundColor = isDark ? Colors.White : Colors.Black;
                 appWindow.TitleBar.ButtonInactiveForegroundColor = isDark ? Colors.White : Colors.Black;
+
+                // 根据主题设置 hover/pressed 背景色，避免始终为黑色
+                // 这几个属性是可选自定义；如果不支持，外层 try/catch 会忽略。
+                var hoverBg = isDark ? Color.FromArgb(60, 255, 255, 255) : Color.FromArgb(60, 0, 0, 0);
+                var pressedBg = isDark ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(90, 0, 0, 0);
+                var inactiveBg = isDark ? Color.FromArgb(40, 255, 255, 255) : Color.FromArgb(40, 0, 0, 0);
+
+                appWindow.TitleBar.ButtonHoverBackgroundColor = hoverBg;
+                appWindow.TitleBar.ButtonPressedBackgroundColor = pressedBg;
+                appWindow.TitleBar.ButtonInactiveBackgroundColor = inactiveBg;
             }
         }
         catch

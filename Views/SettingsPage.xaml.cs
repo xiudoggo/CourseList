@@ -6,6 +6,8 @@ using CourseList.Helpers;
 using System.Threading.Tasks;
 
 using Microsoft.UI.Xaml.Input;
+using System;
+using Microsoft.UI.Text;
 
 namespace CourseList.Views
 {
@@ -13,6 +15,7 @@ namespace CourseList.Views
     {
         private AppConfig? _config;
         private bool _isInitializing = true;
+        private bool _periodTimeDirty = false;
 
         public SettingsPage()
         {
@@ -39,6 +42,11 @@ namespace CourseList.Views
                     break;
                 }
             }
+
+            // 每日节数 + 每节时间
+            EnsurePeriodTimeRangesCapacity(20);
+            PeriodCountBox.Value = _config.PeriodCount;
+            RebuildPeriodTimeInputs();
 
             _isInitializing = false;
         }
@@ -86,6 +94,141 @@ namespace CourseList.Views
 
             _config.ScheduleWeekRange = range;
             _ = Task.Run(() => ConfigHelper.SaveConfig(_config));
+        }
+
+        private void PeriodCountBox_ValueChanged(NumberBox sender, Microsoft.UI.Xaml.Controls.NumberBoxValueChangedEventArgs args)
+        {
+            if (_isInitializing || _config == null)
+                return;
+
+            int newCount = (int)Math.Round(sender.Value);
+            newCount = newCount < 1 ? 1 : newCount > 20 ? 20 : newCount;
+
+            if (_config.PeriodCount == newCount)
+                return;
+
+            _config.PeriodCount = newCount;
+            // PeriodTimeRanges 永远保留 20 行，不因为缩小节数而删除数据
+            EnsurePeriodTimeRangesCapacity(20);
+
+            RebuildPeriodTimeInputs();
+
+            MarkPeriodTimeDirty();
+        }
+
+        private void EnsurePeriodTimeRangesCapacity(int maxPeriods)
+        {
+            if (_config == null)
+                return;
+
+            _config.PeriodTimeRanges ??= new System.Collections.Generic.List<string>();
+
+            if (_config.PeriodTimeRanges.Count < maxPeriods)
+            {
+                while (_config.PeriodTimeRanges.Count < maxPeriods)
+                    _config.PeriodTimeRanges.Add(string.Empty);
+            }
+            else if (_config.PeriodTimeRanges.Count > maxPeriods)
+            {
+                _config.PeriodTimeRanges.RemoveRange(maxPeriods, _config.PeriodTimeRanges.Count - maxPeriods);
+            }
+        }
+
+        private void RebuildPeriodTimeInputs()
+        {
+            if (_config == null)
+                return;
+
+            PeriodTimeInputsPanel.Children.Clear();
+
+            for (int i = 0; i < _config.PeriodCount; i++)
+            {
+                int index = i;
+
+                var rowGrid = new Grid
+                {
+                    Margin = new Thickness(0, 6, 0, 6),
+                    ColumnDefinitions =
+                    {
+                        new ColumnDefinition { Width = new GridLength(44) },
+                        new ColumnDefinition { Width = new GridLength(180) }
+                    }
+                };
+
+                var label = new TextBlock
+                {
+                    Text = $"{index + 1}",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    FontWeight = FontWeights.Bold,
+                    FontSize = 16
+                };
+
+                var timeBox = new TextBox
+                {
+                    Text = _config.PeriodTimeRanges.Count > index ? _config.PeriodTimeRanges[index] : string.Empty,
+                    
+                    Tag = index,
+                    Width = 180,
+                    MaxLength = 15
+                };
+
+                timeBox.LostFocus += PeriodTimeBox_LostFocus;
+
+                Grid.SetColumn(label, 0);
+                Grid.SetColumn(timeBox, 1);
+
+                rowGrid.Children.Add(label);
+                rowGrid.Children.Add(timeBox);
+
+                PeriodTimeInputsPanel.Children.Add(rowGrid);
+            }
+        }
+
+        private void PeriodTimeBox_LostFocus(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            if (_isInitializing || _config == null)
+                return;
+
+            if (sender is not TextBox timeBox)
+                return;
+
+            if (timeBox.Tag is not int index)
+                return;
+
+            if (index < 0 || index >= _config.PeriodCount)
+                return;
+
+            var newText = timeBox.Text ?? string.Empty;
+            if (_config.PeriodTimeRanges[index] == newText)
+                return;
+
+            _config.PeriodTimeRanges[index] = newText;
+            MarkPeriodTimeDirty();
+        }
+
+        private void MarkPeriodTimeDirty()
+        {
+            _periodTimeDirty = true;
+            ConfirmPeriodChangesButton.IsEnabled = true;
+        }
+
+        private void ConfirmPeriodChanges_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            if (_config == null)
+                return;
+
+            if (!_periodTimeDirty)
+                return;
+
+            // 统一确认：只在点按钮时写入 config.json
+            _ = Task.Run(() =>
+            {
+                ConfigHelper.SaveConfig(_config);
+            });
+
+            _periodTimeDirty = false;
+            ConfirmPeriodChangesButton.IsEnabled = false;
         }
     }
 }

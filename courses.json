@@ -1,22 +1,5 @@
 [
   {
-    "Id": 18301,
-    "Name": "2",
-    "Teacher": "2",
-    "Classroom": "222",
-    "DayOfWeek": 3,
-    "ClassPeriods": [
-      3,
-      4,
-      5,
-      6
-    ],
-    "Color": "#FF989A",
-    "WeekType": 0,
-    "Note": "12",
-    "ScheduleDisplay": "周三 第3, 4, 5, 6节"
-  },
-  {
     "Id": 29624,
     "Name": "数据结构",
     "Teacher": "wxm",
@@ -26,7 +9,7 @@
       1,
       2
     ],
-    "Color": "#5CFF57",
+    "Color": "#000000",
     "WeekType": 0,
     "Note": "这是个严厉的老师！！！",
     "ScheduleDisplay": "周一 第1, 2节"
@@ -36,14 +19,15 @@
     "Name": "数据库",
     "Teacher": "zzx",
     "Classroom": "N113",
-    "DayOfWeek": 1,
+    "DayOfWeek": 2,
     "ClassPeriods": [
-      3
+      3,
+      4
     ],
     "Color": "#FF3B63",
     "WeekType": 0,
     "Note": "杀人王",
-    "ScheduleDisplay": "周一 第3节"
+    "ScheduleDisplay": "周二 第3, 4节"
   },
   {
     "Id": 81791,
@@ -56,7 +40,7 @@
       8,
       9
     ],
-    "Color": "#7AFBFF",
+    "Color": "#3B787A",
     "WeekType": 0,
     "Note": "很好的老头子，除了会点名以外",
     "ScheduleDisplay": "周四 第7, 8, 9节"
