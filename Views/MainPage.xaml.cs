@@ -34,5 +34,34 @@ namespace CourseList.Views
                     ContentFrame.Navigate(pageType);
             }
         }
+
+        /// <summary>
+        /// 从托盘/外部入口切回“首页”。
+        /// </summary>
+        public void ShowHomePage()
+        {
+            // NavigationView 的第一个 MenuItem 在 XAML 中对应 HomePage。
+            if (NavView?.MenuItems?.Count > 0)
+            {
+                NavView.SelectedItem = NavView.MenuItems[0];
+                return;
+            }
+
+            // 兜底：如果 MenuItems 为空，直接导航
+            if (ContentFrame?.CurrentSourcePageType != typeof(HomePage))
+                ContentFrame.Navigate(typeof(HomePage)); 
+        }
+
+        /// <summary>
+        /// 仅当当前显示的是 SettingsPage 时，刷新“关闭相关设置”的 UI 状态。
+        /// 用于从系统托盘恢复窗口时，避免设置页因页面复用显示旧状态。
+        /// </summary>
+        public void RefreshCloseOptionsIfSettingsPageVisible()
+        {
+            if (ContentFrame?.Content is SettingsPage sp)
+            {
+                sp.RefreshCloseOptionsFromConfig();
+            }
+        }
     }
 }

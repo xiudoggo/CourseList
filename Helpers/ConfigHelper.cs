@@ -10,6 +10,13 @@ namespace CourseList.Helpers
     public class AppConfig
     {
         public string Theme { get; set; } = "Default";
+        
+        // 关闭窗口时的行为：true = 隐藏到系统托盘；false = 直接关闭退出
+        public bool MinimizeToTrayOnClose { get; set; } = false;
+
+        // 是否在关闭窗口时弹出提示：true = 提示；false = 不再提示
+        public bool ClosePromptEnabled { get; set; } = true;
+
         // 课程表显示范围：5=周一到周五，7=周一到周日
         public int ScheduleWeekRange { get; set; } = 7;
 

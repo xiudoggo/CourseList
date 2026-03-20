@@ -60,5 +60,20 @@
     "WeekType": 0,
     "Note": "",
     "ScheduleDisplay": "周一 第5, 6, 7节"
+  },
+  {
+    "Id": 742,
+    "Name": "计算机导论",
+    "Teacher": "zdh",
+    "Classroom": "N113",
+    "DayOfWeek": 5,
+    "ClassPeriods": [
+      1,
+      2
+    ],
+    "Color": "#876146",
+    "WeekType": 0,
+    "Note": "zdh 永远的神！！！",
+    "ScheduleDisplay": "周五 第1, 2节"
   }
 ]

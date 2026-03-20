@@ -26,7 +26,7 @@
         </TitleBar>
 
         <!-- 应用内容位于第二行 -->
-        <Frame Grid.Row="1" SourcePageType="views:MainPage" />
+        <Frame x:Name="RootFrame" Grid.Row="1" SourcePageType="views:MainPage" />
         
 
     </Grid>

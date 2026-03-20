@@ -11,8 +11,14 @@
                        FontSize="28"
                        FontWeight="Bold"/>
 
-            <TextBlock Text="今天是你的学习日！"
+            <TextBlock x:Name="TodayWeekdayText"
+                       Text="今天是星期一"
                        FontSize="28"/>
+
+            <TextBlock x:Name="TodayCourseSummaryText"
+                       Text="今天很轻松"
+                       FontSize="18"
+                       Opacity="0.9"/>
 
             
 

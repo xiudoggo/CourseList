@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.UI.Xaml.Input;
 using System;
 using Microsoft.UI.Text;
+using Microsoft.UI.Xaml.Navigation;
 
 namespace CourseList.Views
 {
@@ -43,12 +44,95 @@ namespace CourseList.Views
                 }
             }
 
+            // 关闭行为：最小化到托盘 / 直接关闭
+            MinimizeToTrayRadio.IsChecked = _config.MinimizeToTrayOnClose;
+            DirectCloseRadio.IsChecked = !_config.MinimizeToTrayOnClose;
+
+            // 关闭时提示
+            ClosePromptCheckBox.IsChecked = _config.ClosePromptEnabled;
+
             // 每日节数 + 每节时间
             EnsurePeriodTimeRangesCapacity(20);
             PeriodCountBox.Value = _config.PeriodCount;
             RebuildPeriodTimeInputs();
 
             _isInitializing = false;
+        }
+
+        /// <summary>
+        /// 从 config.json 刷新“关闭行为/关闭时提示”等关闭相关 UI。
+        /// 用于窗口从系统托盘恢复时，避免页面不触发 OnNavigatedTo 导致显示过期。
+        /// </summary>
+        public void RefreshCloseOptionsFromConfig()
+        {
+            try
+            {
+                _isInitializing = true;
+
+                var cfg = ConfigHelper.LoadConfig();
+                if (_config == null)
+                    _config = cfg;
+                else
+                {
+                    _config.MinimizeToTrayOnClose = cfg.MinimizeToTrayOnClose;
+                    _config.ClosePromptEnabled = cfg.ClosePromptEnabled;
+                }
+
+                MinimizeToTrayRadio.IsChecked = _config.MinimizeToTrayOnClose;
+                DirectCloseRadio.IsChecked = !_config.MinimizeToTrayOnClose;
+                ClosePromptCheckBox.IsChecked = _config.ClosePromptEnabled;
+            }
+            finally
+            {
+                _isInitializing = false;
+            }
+        }
+
+        protected override void OnNavigatedTo(NavigationEventArgs e)
+        {
+            base.OnNavigatedTo(e);
+
+            // 每次进入设置页都重新读取 config.json，避免页面复用导致 UI 显示旧状态。
+            try
+            {
+                _isInitializing = true;
+                _periodTimeDirty = false;
+                ConfirmPeriodChangesButton.IsEnabled = false;
+
+                _config = ConfigHelper.LoadConfig();
+
+                foreach (ComboBoxItem item in ThemeComboBox.Items)
+                {
+                    var tag = item.Tag as string;
+                    if (!string.IsNullOrEmpty(tag) && tag == _config.Theme)
+                    {
+                        ThemeComboBox.SelectedItem = item;
+                        break;
+                    }
+                }
+
+                foreach (ComboBoxItem item in WeekRangeComboBox.Items)
+                {
+                    var tag = item.Tag as string;
+                    if (int.TryParse(tag, out var range) && range == _config.ScheduleWeekRange)
+                    {
+                        WeekRangeComboBox.SelectedItem = item;
+                        break;
+                    }
+                }
+
+                MinimizeToTrayRadio.IsChecked = _config.MinimizeToTrayOnClose;
+                DirectCloseRadio.IsChecked = !_config.MinimizeToTrayOnClose;
+                ClosePromptCheckBox.IsChecked = _config.ClosePromptEnabled;
+
+                EnsurePeriodTimeRangesCapacity(20);
+                PeriodCountBox.Value = _config.PeriodCount;
+                RebuildPeriodTimeInputs();
+            }
+            finally
+            {
+                _isInitializing = false;
+            }
         }
 
     
@@ -229,6 +313,54 @@ namespace CourseList.Views
 
             _periodTimeDirty = false;
             ConfirmPeriodChangesButton.IsEnabled = false;
+        }
+
+        private void MinimizeToTrayRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_isInitializing || _config == null)
+                return;
+
+            if (_config.MinimizeToTrayOnClose)
+                return;
+
+            _config.MinimizeToTrayOnClose = true;
+            _ = Task.Run(() => ConfigHelper.SaveConfig(_config));
+
+            // 让托盘行为立即生效（无需重启）。
+            if (CourseList.App.CurrentMainWindow is CourseList.MainWindow mw)
+            {
+                mw.UpdateTrayCloseBehavior(true);
+            }
+        }
+
+        private void DirectCloseRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_isInitializing || _config == null)
+                return;
+
+            if (!_config.MinimizeToTrayOnClose)
+                return;
+
+            _config.MinimizeToTrayOnClose = false;
+            _ = Task.Run(() => ConfigHelper.SaveConfig(_config));
+
+            if (CourseList.App.CurrentMainWindow is CourseList.MainWindow mw)
+            {
+                mw.UpdateTrayCloseBehavior(false);
+            }
+        }
+
+        private void ClosePromptCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isInitializing || _config == null)
+                return;
+
+            bool newValue = ClosePromptCheckBox.IsChecked == true;
+            if (_config.ClosePromptEnabled == newValue)
+                return;
+
+            _config.ClosePromptEnabled = newValue;
+            _ = Task.Run(() => ConfigHelper.SaveConfig(_config));
         }
     }
 }

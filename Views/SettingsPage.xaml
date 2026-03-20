@@ -18,46 +18,83 @@
     </Page.Resources>
     
 
-        <Border Margin="20" CornerRadius="16" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" Padding="20">
-            <StackPanel HorizontalAlignment="Left">
-            <TextBlock Text="主题设置" Style="{StaticResource SettingsTitleStyle}"/>
+    <Border Margin="20" CornerRadius="16" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" Padding="20">
+        <!-- 外层滚动：当页面高度不足时，出现滚动条，避免按钮被挤出窗口 -->
+        <ScrollViewer x:Name="SettingsScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="260"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-            <ComboBox x:Name="ThemeComboBox" 
-                SelectionChanged="ThemeChanged" 
-                Width="200" >
-                <ComboBoxItem Content="跟随系统" Tag="Default" />
-                <ComboBoxItem Content="浅色" Tag="Light"/>
-                <ComboBoxItem Content="深色" Tag="Dark"/>
-            </ComboBox>
+                <!-- 左列：系统设置 -->
+                <StackPanel Grid.Column="0" HorizontalAlignment="Left">
+                    <TextBlock Text="系统设置" Style="{StaticResource SettingsTitleStyle}"/>
 
-            <TextBlock Text="课程表显示范围" Style="{StaticResource SettingsTitleStyle}"/>
-            <ComboBox x:Name="WeekRangeComboBox"
-                      SelectionChanged="WeekRangeChanged"
-                      Width="240">
-                <ComboBoxItem Content="周一到周五" Tag="5"/>
-                <ComboBoxItem Content="周一到周日" Tag="7"/>
-            </ComboBox>
+                    <TextBlock Text="主题设置" Style="{StaticResource SettingsSectionLabelStyle}"/>
+                    <ComboBox x:Name="ThemeComboBox"
+                              SelectionChanged="ThemeChanged"
+                              Width="220">
+                        <ComboBoxItem Content="跟随系统" Tag="Default" />
+                        <ComboBoxItem Content="浅色" Tag="Light"/>
+                        <ComboBoxItem Content="深色" Tag="Dark"/>
+                    </ComboBox>
 
-            <TextBlock Text="每日节数（课程表行数）" Style="{StaticResource SettingsTitleStyle}"/>
-            <NumberBox x:Name="PeriodCountBox"
-                        Minimum="1"
-                        Maximum="20"
-                        ValueChanged="PeriodCountBox_ValueChanged"
-                        Width="240"
-                        HorizontalAlignment="Left"/>
+                    <TextBlock Text="关闭行为" Style="{StaticResource SettingsSectionLabelStyle}"/>
+                    <StackPanel Spacing="6">
+                        <RadioButton x:Name="MinimizeToTrayRadio"
+                                     Content="最小化到系统托盘"
+                                     Checked="MinimizeToTrayRadio_Checked"/>
+                        <RadioButton x:Name="DirectCloseRadio"
+                                     Content="直接关闭"
+                                     Checked="DirectCloseRadio_Checked"/>
+                    </StackPanel>
 
-            <TextBlock Text="每节时间（显示在课程表首列）" Style="{StaticResource SettingsTitleStyle}"/>
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Height="260" Width="240" Padding="0" HorizontalAlignment="Left">
-                <StackPanel x:Name="PeriodTimeInputsPanel"/>
-            </ScrollViewer>
+                    <CheckBox x:Name="ClosePromptCheckBox"
+                              Content="关闭时提示"
+                              Checked="ClosePromptCheckBox_Changed"
+                              Unchecked="ClosePromptCheckBox_Changed"
+                              Margin="0,10,0,0"/>
+                </StackPanel>
 
-            <Button x:Name="ConfirmPeriodChangesButton"
-                    Content="确认修改"
-                    Margin="0,12,0,0"
-                    IsEnabled="False"
-                    Click="ConfirmPeriodChanges_Click"
-                    Width="240"
-                    HorizontalAlignment="Left"/>
-            </StackPanel>
-        </Border>
+                <!-- 右列：课程表功能设置 -->
+                <StackPanel Grid.Column="1" HorizontalAlignment="Left">
+                    <TextBlock Text="课程表功能设置" Style="{StaticResource SettingsTitleStyle}"/>
+
+                    <TextBlock Text="课程表显示范围" Style="{StaticResource SettingsSectionLabelStyle}"/>
+                    <ComboBox x:Name="WeekRangeComboBox"
+                              SelectionChanged="WeekRangeChanged"
+                              Width="240">
+                        <ComboBoxItem Content="周一到周五" Tag="5"/>
+                        <ComboBoxItem Content="周一到周日" Tag="7"/>
+                    </ComboBox>
+
+                    <TextBlock Text="每日节数（课程表行数）" Style="{StaticResource SettingsSectionLabelStyle}"/>
+                    <NumberBox x:Name="PeriodCountBox"
+                                Minimum="1"
+                                Maximum="20"
+                                ValueChanged="PeriodCountBox_ValueChanged"
+                                Width="240"
+                                HorizontalAlignment="Left"/>
+
+                    <TextBlock Text="每节时间（显示在课程表首列）" Style="{StaticResource SettingsSectionLabelStyle}"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  Height="260"
+                                  Width="240"
+                                  Padding="0"
+                                  HorizontalAlignment="Left">
+                        <StackPanel x:Name="PeriodTimeInputsPanel"/>
+                    </ScrollViewer>
+
+                    <Button x:Name="ConfirmPeriodChangesButton"
+                            Content="确认修改"
+                            Margin="0,12,0,0"
+                            IsEnabled="False"
+                            Click="ConfirmPeriodChanges_Click"
+                            Width="240"
+                            HorizontalAlignment="Left"/>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Border>
 </Page>

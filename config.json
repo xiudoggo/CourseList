@@ -1,5 +1,7 @@
 {
   "Theme": "Light",
+  "MinimizeToTrayOnClose": true,
+  "ClosePromptEnabled": false,
   "ScheduleWeekRange": 5,
   "PeriodCount": 12,
   "PeriodTimeRanges": [
