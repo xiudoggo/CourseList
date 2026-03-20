@@ -38,12 +38,14 @@
     "ClassPeriods": [
       7,
       8,
-      9
+      9,
+      10,
+      11
     ],
     "Color": "#3B787A",
     "WeekType": 0,
     "Note": "很好的老头子，除了会点名以外",
-    "ScheduleDisplay": "周四 第7, 8, 9节"
+    "ScheduleDisplay": "周四 第7, 8, 9, 10, 11节"
   },
   {
     "Id": 67657,
@@ -75,5 +77,34 @@
     "WeekType": 0,
     "Note": "zdh 永远的神！！！",
     "ScheduleDisplay": "周五 第1, 2节"
+  },
+  {
+    "Id": 7767,
+    "Name": "数值计算",
+    "Teacher": "fld",
+    "Classroom": "知产108",
+    "DayOfWeek": 1,
+    "ClassPeriods": [
+      3,
+      4
+    ],
+    "Color": "#115942",
+    "WeekType": 0,
+    "Note": "",
+    "ScheduleDisplay": "周一 第3, 4节"
+  },
+  {
+    "Id": 69727,
+    "Name": "概率论",
+    "Teacher": "null",
+    "Classroom": "N417",
+    "DayOfWeek": 2,
+    "ClassPeriods": [
+      1
+    ],
+    "Color": "#8C2F52",
+    "WeekType": 0,
+    "Note": "",
+    "ScheduleDisplay": "周二 第1节"
   }
 ]

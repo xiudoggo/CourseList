@@ -1,6 +1,15 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <PropertyGroup />
+  <PropertyGroup>
+    <Source>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</Source>
+    <SmallTileSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</SmallTileSource>
+    <MediumTileSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</MediumTileSource>
+    <WideTileSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</WideTileSource>
+    <LargeTileSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</LargeTileSource>
+    <AppIconSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</AppIconSource>
+    <SplashScreenSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</SplashScreenSource>
+    <PackageLogoSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</PackageLogoSource>
+  </PropertyGroup>
   <ItemGroup>
     <None Update="App.xaml">
       <SubType>Designer</SubType>

@@ -97,6 +97,18 @@ namespace CourseList.Helpers
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr LoadIcon(IntPtr hInstance, IntPtr lpIconName);
 
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr LoadImage(
+            IntPtr hinst,
+            string lpszName,
+            uint uType,
+            int cxDesired,
+            int cyDesired,
+            uint fuLoad);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool DestroyIcon(IntPtr hIcon);
+
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         private static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
 
@@ -137,7 +149,27 @@ namespace CourseList.Helpers
 
         private static IntPtr LoadApplicationIcon()
         {
-            // IDI_APPLICATION = 32512
+            try
+            {
+                // Prefer custom tray icon
+                string iconPath = PathHelper.GetFullPath(@"Assets/CourseList.ico");
+                if (System.IO.File.Exists(iconPath))
+                {
+                    const uint IMAGE_ICON = 1;
+                    const uint LR_LOADFROMFILE = 0x00000010;
+                    const uint LR_DEFAULTSIZE = 0x00000040;
+
+                    var hIcon = LoadImage(IntPtr.Zero, iconPath, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+                    if (hIcon != IntPtr.Zero)
+                        return hIcon;
+                }
+            }
+            catch
+            {
+                // ignore and fallback
+            }
+
+            // Fallback: IDI_APPLICATION = 32512
             const int IDI_APPLICATION = 0x7F00;
             return LoadIcon(IntPtr.Zero, (IntPtr)IDI_APPLICATION);
         }
@@ -371,6 +403,19 @@ namespace CourseList.Helpers
                 if (_prevWndProc != IntPtr.Zero && _wndProcDelegate != null)
                 {
                     SetWindowLongPtr(_hwnd, GWLP_WNDPROC, _prevWndProc);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            try
+            {
+                if (_iconHandle != IntPtr.Zero)
+                {
+                    DestroyIcon(_iconHandle);
+                    _iconHandle = IntPtr.Zero;
                 }
             }
             catch

@@ -15,6 +15,7 @@ using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml.Hosting;
+using System.Linq;
 
 namespace CourseList.Views
 {
@@ -248,6 +249,8 @@ namespace CourseList.Views
                 border.Child = null;
                 border.BorderBrush = null;
                 border.BorderThickness = new Thickness(0);
+                border.Visibility = Visibility.Visible;
+                Grid.SetRowSpan(border, 1);
 
                 if (border.RenderTransform is ScaleTransform s)
                 {
@@ -255,6 +258,33 @@ namespace CourseList.Views
                     s.ScaleY = 0.95;
                 }
             }
+        }
+
+        private static List<(int start, int end)> GetConsecutiveSegments(IReadOnlyList<int> sortedDistinctPeriods)
+        {
+            var segments = new List<(int start, int end)>();
+            if (sortedDistinctPeriods == null || sortedDistinctPeriods.Count == 0)
+                return segments;
+
+            int segStart = sortedDistinctPeriods[0];
+            int prev = sortedDistinctPeriods[0];
+
+            for (int i = 1; i < sortedDistinctPeriods.Count; i++)
+            {
+                int p = sortedDistinctPeriods[i];
+                if (p == prev + 1)
+                {
+                    prev = p;
+                    continue;
+                }
+
+                segments.Add((segStart, prev));
+                segStart = p;
+                prev = p;
+            }
+
+            segments.Add((segStart, prev));
+            return segments;
         }
 
         private void ApplyCourseToCells(Course course)
@@ -266,59 +296,92 @@ namespace CourseList.Views
                 return;
             }
 
-            foreach (var period in course.ClassPeriods)
-            {
-                int dayOffset = (int)course.DayOfWeek - 1; // Monday=1 -> index 0
-                if (dayOffset < 0) dayOffset = 6; // Sunday=7 -> index 6
+            int dayOffset = (int)course.DayOfWeek - 1; // Monday=1 -> index 0
+            if (dayOffset < 0) dayOffset = 6; // Sunday=7 -> index 6
+            int dayCol = dayOffset + 1;
 
-                var key = (dayOffset + 1, period);
-                if (_cellMap.TryGetValue(key, out var border) && border != null)
+            // 生成连续段：例如 [1,2,3,5] => (1..3), (5..5)
+            var sortedDistinctPeriods = course.ClassPeriods?
+                .Where(p => p >= 1 && p <= _periodCount)
+                .Distinct()
+                .OrderBy(p => p)
+                .ToList();
+
+            if (sortedDistinctPeriods == null || sortedDistinctPeriods.Count == 0)
+                return;
+
+            var segments = GetConsecutiveSegments(sortedDistinctPeriods);
+            var courseColor = new SolidColorBrush(ColorHelperFromHex(course.Color));
+
+            foreach (var (startPeriod, endPeriod) in segments)
+            {
+                var topKey = (dayCol, startPeriod);
+                if (!_cellMap.TryGetValue(topKey, out var topBorder) || topBorder == null)
+                    continue;
+
+                int spanLen = endPeriod - startPeriod + 1;
+
+                // 只在“连续段的第一节”显示内容，并通过 RowSpan 覆盖中间行
+                topBorder.Visibility = Visibility.Visible;
+                topBorder.Background = courseColor;
+                topBorder.BorderBrush = null;
+                topBorder.BorderThickness = new Thickness(0);
+                Grid.SetRowSpan(topBorder, spanLen);
+
+                topBorder.Child = new StackPanel
                 {
-                    border.Background = new SolidColorBrush(ColorHelperFromHex(course.Color));
+                    Orientation = Orientation.Vertical,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Spacing = 2
+                };
+
+                if (topBorder.Child is StackPanel sp)
+                {
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = course.Name,
+                        TextWrapping = TextWrapping.Wrap,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Foreground = new SolidColorBrush(Colors.White),
+                        FontSize = 16,
+                        FontWeight = FontWeights.SemiBold
+                    });
+
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = course.Teacher,
+                        TextWrapping = TextWrapping.Wrap,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Foreground = new SolidColorBrush(Colors.White),
+                        FontSize = 14
+                    });
+
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = course.Classroom,
+                        TextWrapping = TextWrapping.Wrap,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Foreground = new SolidColorBrush(Colors.White),
+                        FontSize = 14
+                    });
+                }
+
+                _courseCellMap[topBorder] = course;
+
+                // 折叠掉连续段中后续的每节 Border，避免重复显示，也避免出现“分隔缝”
+                for (int p = startPeriod + 1; p <= endPeriod; p++)
+                {
+                    var k = (dayCol, p);
+                    if (!_cellMap.TryGetValue(k, out var border) || border == null)
+                        continue;
+
+                    border.Visibility = Visibility.Collapsed;
+                    border.Background = new SolidColorBrush(Colors.Transparent);
+                    border.Child = null;
                     border.BorderBrush = null;
                     border.BorderThickness = new Thickness(0);
-                    // 保持初始化阶段设定的圆角/缩放/边距
-
-                    border.Child = new StackPanel
-                    {
-                        Orientation = Orientation.Vertical,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Spacing = 2
-                    };
-
-                    if (border.Child is StackPanel sp)
-                    {
-                        sp.Children.Add(new TextBlock
-                        {
-                            Text = course.Name,
-                            TextWrapping = TextWrapping.Wrap,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            Foreground = new SolidColorBrush(Colors.White),
-                            FontSize = 16,
-                            FontWeight = FontWeights.SemiBold
-                        });
-
-                        sp.Children.Add(new TextBlock
-                        {
-                            Text = course.Teacher,
-                            TextWrapping = TextWrapping.Wrap,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            Foreground = new SolidColorBrush(Colors.White),
-                            FontSize = 14
-                        });
-
-                        sp.Children.Add(new TextBlock
-                        {
-                            Text = course.Classroom,
-                            TextWrapping = TextWrapping.Wrap,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            Foreground = new SolidColorBrush(Colors.White),
-                            FontSize = 14
-                        });
-                    }
-
-                    _courseCellMap[border] = course;
+                    Grid.SetRowSpan(border, 1);
                 }
             }
         }
@@ -332,6 +395,8 @@ namespace CourseList.Views
             border.Child = null;
             border.BorderBrush = null;
             border.BorderThickness = new Thickness(0);
+            border.Visibility = Visibility.Visible;
+            Grid.SetRowSpan(border, 1);
 
             if (border.RenderTransform is ScaleTransform s)
             {
