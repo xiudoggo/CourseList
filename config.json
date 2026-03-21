@@ -1,29 +1,89 @@
 {
-  "Theme": "Light",
-  "MinimizeToTrayOnClose": true,
+  "Theme": "Dark",
+  "MinimizeToTrayOnClose": false,
   "ClosePromptEnabled": false,
-  "ScheduleWeekRange": 5,
+  "ScheduleWeekRange": 7,
   "PeriodCount": 12,
   "PeriodTimeRanges": [
-    "8:30 ~ 9:15",
-    "9:25 ~ 10:10",
-    "10:30 ~ 11:15",
-    "11:25 ~ 12:10",
-    "12:20 ~ 13:05",
-    "14:00 ~ 14:45",
-    "14:55 ~ 15:40",
-    "15:50 ~ 16:35",
-    "16:45 ~ 17:30",
-    "18:30 ~ 19:15",
-    "19:25 ~ 20:10",
-    "20:20 ~ 21:05",
-    "8:00 ~ 8:45",
-    "8:00 ~ 8:45",
-    "8:00 ~ 8:45",
-    "8:00 ~ 8:45",
-    "8:00 ~ 8:45",
-    "8:00 ~ 8:45",
-    "8:00 ~ 8:45",
-    "8:00 ~ 8:45"
+    {
+      "StartTime": "08:30",
+      "EndTime": "09:15"
+    },
+    {
+      "StartTime": "09:25",
+      "EndTime": "10:10"
+    },
+    {
+      "StartTime": "10:30",
+      "EndTime": "11:15"
+    },
+    {
+      "StartTime": "11:25",
+      "EndTime": "12:10"
+    },
+    {
+      "StartTime": "12:20",
+      "EndTime": "13:05"
+    },
+    {
+      "StartTime": "14:00",
+      "EndTime": "14:45"
+    },
+    {
+      "StartTime": "14:55",
+      "EndTime": "15:40"
+    },
+    {
+      "StartTime": "15:50",
+      "EndTime": "16:35"
+    },
+    {
+      "StartTime": "16:45",
+      "EndTime": "17:30"
+    },
+    {
+      "StartTime": "18:30",
+      "EndTime": "19:15"
+    },
+    {
+      "StartTime": "19:25",
+      "EndTime": "20:10"
+    },
+    {
+      "StartTime": "20:20",
+      "EndTime": "21:05"
+    },
+    {
+      "StartTime": "08:00",
+      "EndTime": "08:45"
+    },
+    {
+      "StartTime": "08:00",
+      "EndTime": "08:45"
+    },
+    {
+      "StartTime": "08:00",
+      "EndTime": "08:45"
+    },
+    {
+      "StartTime": "08:00",
+      "EndTime": "08:45"
+    },
+    {
+      "StartTime": "08:00",
+      "EndTime": "08:45"
+    },
+    {
+      "StartTime": "08:00",
+      "EndTime": "08:45"
+    },
+    {
+      "StartTime": "08:00",
+      "EndTime": "08:45"
+    },
+    {
+      "StartTime": "08:00",
+      "EndTime": "08:45"
+    }
   ]
 }

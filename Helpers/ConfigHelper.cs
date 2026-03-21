@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace CourseList.Helpers
@@ -24,8 +25,122 @@ namespace CourseList.Helpers
         public int PeriodCount { get; set; } = 11;
 
         // 每节开始与结束时间（长度应与 PeriodCount 对齐；索引 i => 第 i+1 节）
-        // 例如："8:00 ~ 8:45"
-        public List<string> PeriodTimeRanges { get; set; } = new List<string>();
+        public List<PeriodTimeRange> PeriodTimeRanges { get; set; } = new List<PeriodTimeRange>();
+    }
+
+    [JsonConverter(typeof(PeriodTimeRangeJsonConverter))]
+    public class PeriodTimeRange
+    {
+        public TimeOnly? StartTime { get; set; }
+        public TimeOnly? EndTime { get; set; }
+
+        public string ToDisplayText()
+        {
+            if (StartTime.HasValue && EndTime.HasValue)
+                return $"{StartTime.Value:HH\\:mm} ~ {EndTime.Value:HH\\:mm}";
+            if (StartTime.HasValue)
+                return $"{StartTime.Value:HH\\:mm}";
+            return string.Empty;
+        }
+
+        public static PeriodTimeRange ParseLegacyText(string? text)
+        {
+            var result = new PeriodTimeRange();
+            var value = text?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(value))
+                return result;
+
+            var unified = value.Replace("～", "~").Replace("—", "-").Replace("－", "-");
+            var parts = unified.Split(new[] { "~", "-" }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return result;
+
+            if (TryParseTime(parts[0], out var start))
+                result.StartTime = start;
+
+            if (parts.Length >= 2 && TryParseTime(parts[1], out var end))
+                result.EndTime = end;
+            else if (!result.EndTime.HasValue)
+                result.EndTime = result.StartTime;
+
+            return result;
+        }
+
+        private static bool TryParseTime(string raw, out TimeOnly time)
+        {
+            var value = (raw ?? string.Empty).Trim();
+            if (TimeOnly.TryParse(value, out time))
+                return true;
+
+            if (DateTime.TryParse(value, out var dt))
+            {
+                time = TimeOnly.FromDateTime(dt);
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    public sealed class PeriodTimeRangeJsonConverter : JsonConverter<PeriodTimeRange>
+    {
+        public override PeriodTimeRange Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.String)
+            {
+                return PeriodTimeRange.ParseLegacyText(reader.GetString());
+            }
+
+            if (reader.TokenType != JsonTokenType.StartObject)
+                throw new JsonException("Invalid period time range token.");
+
+            var result = new PeriodTimeRange();
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject)
+                    return result;
+
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                    continue;
+
+                var propName = reader.GetString() ?? string.Empty;
+                reader.Read();
+
+                if (string.Equals(propName, "StartTime", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (reader.TokenType == JsonTokenType.String &&
+                        TimeOnly.TryParse(reader.GetString(), out var start))
+                    {
+                        result.StartTime = start;
+                    }
+                }
+                else if (string.Equals(propName, "EndTime", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (reader.TokenType == JsonTokenType.String &&
+                        TimeOnly.TryParse(reader.GetString(), out var end))
+                    {
+                        result.EndTime = end;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        public override void Write(Utf8JsonWriter writer, PeriodTimeRange value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            if (value.StartTime.HasValue)
+                writer.WriteString("StartTime", value.StartTime.Value.ToString("HH\\:mm"));
+            else
+                writer.WriteNull("StartTime");
+
+            if (value.EndTime.HasValue)
+                writer.WriteString("EndTime", value.EndTime.Value.ToString("HH\\:mm"));
+            else
+                writer.WriteNull("EndTime");
+            writer.WriteEndObject();
+        }
     }
 
     public static class ConfigHelper
@@ -87,20 +202,20 @@ namespace CourseList.Helpers
             else if (config.PeriodCount > 20)
                 config.PeriodCount = MaxPeriodCount;
 
-            config.PeriodTimeRanges ??= new List<string>();
+            config.PeriodTimeRanges ??= new List<PeriodTimeRange>();
 
             // 将可能的 null 元素替换为 ""，避免后续 UI 绑定时报错
             for (int i = 0; i < config.PeriodTimeRanges.Count; i++)
             {
                 if (config.PeriodTimeRanges[i] == null)
-                    config.PeriodTimeRanges[i] = string.Empty;
+                    config.PeriodTimeRanges[i] = new PeriodTimeRange();
             }
 
             // PeriodTimeRanges 永远保持 20 行，缩小节数不应删除数据
             if (config.PeriodTimeRanges.Count < MaxPeriodCount)
             {
                 while (config.PeriodTimeRanges.Count < MaxPeriodCount)
-                    config.PeriodTimeRanges.Add(string.Empty);
+                    config.PeriodTimeRanges.Add(new PeriodTimeRange());
             }
             else if (config.PeriodTimeRanges.Count > MaxPeriodCount)
             {

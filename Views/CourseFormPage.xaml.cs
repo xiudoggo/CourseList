@@ -106,9 +106,11 @@ namespace CourseList.Views
             try
             {
                 var periods = PeriodsBox.Text
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Split(new[] { ',', '，', '、', ';', '；', ' ' }, StringSplitOptions.RemoveEmptyEntries)
                     .Select(s => int.TryParse(s.Trim(), out var n) ? n : -1)
                     .Where(n => n >= 1 && n <= _maxPeriods)
+                    .Distinct()
+                    .OrderBy(n => n)
                     .ToList();
 
                 if (periods.Count == 0)

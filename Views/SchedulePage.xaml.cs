@@ -27,7 +27,7 @@ namespace CourseList.Views
         // 5=周一到周五；7=周一到周日
         private int _scheduleWeekRange = 7;
         private int _periodCount = 11;
-        private List<string> _periodTimeRanges = new List<string>();
+        private List<PeriodTimeRange> _periodTimeRanges = new List<PeriodTimeRange>();
 
         public SchedulePage()
         {
@@ -43,7 +43,7 @@ namespace CourseList.Views
             var config = ConfigHelper.LoadConfig();
             _scheduleWeekRange = config.ScheduleWeekRange == 5 ? 5 : 7;
             _periodCount = config.PeriodCount;
-            _periodTimeRanges = config.PeriodTimeRanges ?? new List<string>();
+            _periodTimeRanges = config.PeriodTimeRanges ?? new List<PeriodTimeRange>();
 
             // 先根据配置重建列（周六/周日列删除或保留），再生成课程单元格
             ApplyWeekRangeVisibility();
@@ -84,7 +84,7 @@ namespace CourseList.Views
             ScheduleGrid.ColumnDefinitions.Clear();
 
             // col=0
-            ScheduleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
+            ScheduleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
 
             // col=1..N
             for (int col = 1; col <= dayColumnCount; col++)
@@ -149,7 +149,7 @@ namespace CourseList.Views
             for (int period = 1; period <= _periodCount; period++)
             {
                 string timeText = _periodTimeRanges.Count >= period
-                    ? _periodTimeRanges[period - 1]
+                    ? _periodTimeRanges[period - 1].ToDisplayText()
                     : string.Empty;
 
                 var border = new Border
@@ -173,6 +173,7 @@ namespace CourseList.Views
                 var numText = new TextBlock
                 {
                     Text = period.ToString(),
+                    FontSize = 18,
                     FontWeight = FontWeights.Bold,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
@@ -185,7 +186,7 @@ namespace CourseList.Views
                     Foreground = headerTextBrush,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
-                    TextWrapping = TextWrapping.Wrap
+                    TextWrapping = TextWrapping.NoWrap
                 };
 
                 if (string.IsNullOrWhiteSpace(timeText))

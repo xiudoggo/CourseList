@@ -9,11 +9,18 @@ using Microsoft.UI.Xaml.Input;
 using System;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Navigation;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace CourseList.Views
 {
     public sealed partial class SettingsPage : Page
     {
+        private sealed class PeriodTimeButtonTag
+        {
+            public int Index { get; set; }
+            public bool IsStart { get; set; }
+        }
+
         private AppConfig? _config;
         private bool _isInitializing = true;
         private bool _periodTimeDirty = false;
@@ -205,12 +212,12 @@ namespace CourseList.Views
             if (_config == null)
                 return;
 
-            _config.PeriodTimeRanges ??= new System.Collections.Generic.List<string>();
+            _config.PeriodTimeRanges ??= new System.Collections.Generic.List<PeriodTimeRange>();
 
             if (_config.PeriodTimeRanges.Count < maxPeriods)
             {
                 while (_config.PeriodTimeRanges.Count < maxPeriods)
-                    _config.PeriodTimeRanges.Add(string.Empty);
+                    _config.PeriodTimeRanges.Add(new PeriodTimeRange());
             }
             else if (_config.PeriodTimeRanges.Count > maxPeriods)
             {
@@ -235,7 +242,9 @@ namespace CourseList.Views
                     ColumnDefinitions =
                     {
                         new ColumnDefinition { Width = new GridLength(44) },
-                        new ColumnDefinition { Width = new GridLength(180) }
+                        new ColumnDefinition { Width = new GridLength(90) },
+                        new ColumnDefinition { Width = new GridLength(12) },
+                        new ColumnDefinition { Width = new GridLength(90) }
                     }
                 };
 
@@ -248,47 +257,140 @@ namespace CourseList.Views
                     FontSize = 16
                 };
 
-                var timeBox = new TextBox
+                var range = _config.PeriodTimeRanges.Count > index
+                    ? (_config.PeriodTimeRanges[index] ?? new PeriodTimeRange())
+                    : new PeriodTimeRange();
+
+                var startButton = new Button
                 {
-                    Text = _config.PeriodTimeRanges.Count > index ? _config.PeriodTimeRanges[index] : string.Empty,
-                    
-                    Tag = index,
-                    Width = 180,
-                    MaxLength = 15
+                    Tag = new PeriodTimeButtonTag { Index = index, IsStart = true },
+                    Width = 90,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Content = FormatTime(range.StartTime ?? new TimeOnly(0, 0))
+                };
+                startButton.Click += PeriodTimeButton_Click;
+
+                var separator = new TextBlock
+                {
+                    Text = "~",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    FontWeight = FontWeights.SemiBold
                 };
 
-                timeBox.LostFocus += PeriodTimeBox_LostFocus;
+                var endButton = new Button
+                {
+                    Tag = new PeriodTimeButtonTag { Index = index, IsStart = false },
+                    Width = 90,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Content = FormatTime(range.EndTime ?? range.StartTime ?? new TimeOnly(0, 0))
+                };
+                endButton.Click += PeriodTimeButton_Click;
 
                 Grid.SetColumn(label, 0);
-                Grid.SetColumn(timeBox, 1);
+                Grid.SetColumn(startButton, 1);
+                Grid.SetColumn(separator, 2);
+                Grid.SetColumn(endButton, 3);
 
                 rowGrid.Children.Add(label);
-                rowGrid.Children.Add(timeBox);
+                rowGrid.Children.Add(startButton);
+                rowGrid.Children.Add(separator);
+                rowGrid.Children.Add(endButton);
 
                 PeriodTimeInputsPanel.Children.Add(rowGrid);
             }
         }
 
-        private void PeriodTimeBox_LostFocus(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        private static string FormatTime(TimeOnly time)
         {
-            if (_isInitializing || _config == null)
+            return $"{time:HH\\:mm}";
+        }
+
+        private void PeriodTimeButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_config == null || sender is not Button button || button.Tag is not PeriodTimeButtonTag tag)
                 return;
 
-            if (sender is not TextBox timeBox)
+            if (tag.Index < 0 || tag.Index >= _config.PeriodCount)
                 return;
 
-            if (timeBox.Tag is not int index)
-                return;
+            var range = _config.PeriodTimeRanges[tag.Index] ?? new PeriodTimeRange();
+            var current = tag.IsStart
+                ? (range.StartTime ?? new TimeOnly(0, 0))
+                : (range.EndTime ?? range.StartTime ?? new TimeOnly(0, 0));
 
-            if (index < 0 || index >= _config.PeriodCount)
-                return;
+            var picker = new TimePicker
+            {
+                ClockIdentifier = "24HourClock",
+                MinuteIncrement = 5,
+                Time = new TimeSpan(current.Hour, current.Minute, 0)
+            };
 
-            var newText = timeBox.Text ?? string.Empty;
-            if (_config.PeriodTimeRanges[index] == newText)
-                return;
+            var okButton = new Button
+            {
+                Content = "确定",
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
 
-            _config.PeriodTimeRanges[index] = newText;
-            MarkPeriodTimeDirty();
+            var panel = new StackPanel { Spacing = 10 };
+            panel.Children.Add(picker);
+            panel.Children.Add(okButton);
+
+            var flyout = new Flyout
+            {
+                Content = panel,
+                Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft
+            };
+
+            okButton.Click += (_, __) =>
+            {
+                var selected = TimeOnly.FromTimeSpan(picker.Time);
+                var changed = false;
+
+                if (tag.IsStart)
+                {
+                    if (range.StartTime != selected)
+                    {
+                        range.StartTime = selected;
+                        changed = true;
+                    }
+                    if (!range.EndTime.HasValue || range.EndTime.Value < range.StartTime.Value)
+                    {
+                        range.EndTime = range.StartTime;
+                        changed = true;
+                    }
+                }
+                else
+                {
+                    if (range.EndTime != selected)
+                    {
+                        range.EndTime = selected;
+                        changed = true;
+                    }
+                    if (!range.StartTime.HasValue)
+                    {
+                        range.StartTime = range.EndTime;
+                        changed = true;
+                    }
+                    else if (range.EndTime.Value < range.StartTime.Value)
+                    {
+                        range.StartTime = range.EndTime;
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    _config.PeriodTimeRanges[tag.Index] = range;
+                    RebuildPeriodTimeInputs();
+                    MarkPeriodTimeDirty();
+                }
+
+                flyout.Hide();
+            };
+
+            button.Flyout = flyout;
+            flyout.ShowAt(button);
         }
 
         private void MarkPeriodTimeDirty()

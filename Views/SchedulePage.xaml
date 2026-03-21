@@ -58,7 +58,7 @@
                       PointerPressed="ScheduleGrid_PointerPressed">
                 <!-- 列定义 -->
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="96"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
