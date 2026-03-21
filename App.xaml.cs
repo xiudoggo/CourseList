@@ -18,6 +18,7 @@ using Windows.Foundation.Collections;
 using CourseList.Helpers;
 
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -30,6 +31,7 @@ namespace CourseList
     public partial class App : Application
     {
         private Window? _window;
+        private Microsoft.Windows.AppLifecycle.AppInstance? _mainInstance;
 
         /// <summary>
         /// 获取当前活动的主窗口（避免与基类成员混淆，使用自定义名称）
@@ -48,15 +50,59 @@ namespace CourseList
         
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            var currentInstance = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent();
+            var mainInstance = Microsoft.Windows.AppLifecycle.AppInstance.FindOrRegisterForKey("main");
+            if (!mainInstance.IsCurrent)
+            {
+                await mainInstance.RedirectActivationToAsync(currentInstance.GetActivatedEventArgs());
+                return;
+            }
+
+            _mainInstance = mainInstance;
+            _mainInstance.Activated -= MainInstance_Activated;
+            _mainInstance.Activated += MainInstance_Activated;
+
+            SchemeHelper.EnsureMigrated();
             await CourseDataHelper.LoadCoursesAsync();
-            
-            
+
             _window = new MainWindow();
             _window.Activate();
 
             // ⭐ 加这一段
             var config = ConfigHelper.LoadConfig();
             ThemeHelper.ApplyTheme(config.Theme);
+        }
+
+        private void MainInstance_Activated(object? sender, Microsoft.Windows.AppLifecycle.AppActivationArguments e)
+        {
+            if (_window == null)
+            {
+                _window = new MainWindow();
+                _window.Activate();
+                return;
+            }
+
+            if (_window.DispatcherQueue != null)
+            {
+                _window.DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Normal, () =>
+                {
+                    EnsureWindowForeground();
+                });
+                return;
+            }
+
+            EnsureWindowForeground();
+        }
+
+        private void EnsureWindowForeground()
+        {
+            if (_window is MainWindow mainWindow)
+            {
+                mainWindow.BringToFrontFromActivation();
+                return;
+            }
+
+            _window?.Activate();
         }
 
 

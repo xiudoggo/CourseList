@@ -274,6 +274,26 @@ namespace CourseList
             Activate();
         }
 
+        public void BringToFrontFromActivation()
+        {
+            if (_trayExitRequested)
+                return;
+
+            if (_isHiddenToTray)
+            {
+                RestoreFromTray();
+                return;
+            }
+
+            if (_appWindow != null)
+            {
+                _appWindow.IsShownInSwitchers = true;
+                _appWindow.Show();
+            }
+
+            Activate();
+        }
+
         private void ExitFromTray()
         {
             if (_trayExitRequested)

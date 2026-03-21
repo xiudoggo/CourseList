@@ -158,9 +158,6 @@ namespace CourseList.Helpers
 
     public static class ConfigHelper
     {
-        private static readonly string ConfigFilePath =
-            PathHelper.GetFullPath("config.json");
-
         private const int MaxPeriodCount = 20;
         private const int MaxSemesterWeeks = 30;
 
@@ -168,36 +165,102 @@ namespace CourseList.Helpers
         {
             try
             {
+                SchemeHelper.EnsureMigrated();
                 PathHelper.EnsureFolderExists();
-                if (!File.Exists(ConfigFilePath))
-                {
-                    var defaultConfig = new AppConfig();
-                    SaveConfig(defaultConfig);
-                    return defaultConfig;
-                }
 
-                string json = File.ReadAllText(ConfigFilePath);
-                return Normalize(JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig());
+                var global = LoadGlobalConfigFromSchemes();
+                var scheme = LoadSchemeConfig();
+                var merged = MergeConfig(global, scheme);
+                return Normalize(merged);
             }
             catch
             {
-                // 出错兜底
                 return Normalize(new AppConfig());
             }
+        }
+
+        private static AppConfig LoadGlobalConfigFromSchemes()
+        {
+            var global = SchemeHelper.LoadGlobalSettings();
+            return new AppConfig
+            {
+                Theme = global.Theme,
+                MinimizeToTrayOnClose = global.MinimizeToTrayOnClose,
+                ClosePromptEnabled = global.ClosePromptEnabled
+            };
+        }
+
+        private static AppConfig LoadSchemeConfig()
+        {
+            var currentId = SchemeHelper.GetCurrentSchemeId();
+            if (string.IsNullOrEmpty(currentId))
+                return new AppConfig();
+            var path = SchemeHelper.GetSchemeConfigPath(currentId);
+            if (!File.Exists(path))
+                return new AppConfig();
+            try
+            {
+                var json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
+            }
+            catch
+            {
+                return new AppConfig();
+            }
+        }
+
+        private static AppConfig MergeConfig(AppConfig global, AppConfig scheme)
+        {
+            return new AppConfig
+            {
+                Theme = global.Theme,
+                MinimizeToTrayOnClose = global.MinimizeToTrayOnClose,
+                ClosePromptEnabled = global.ClosePromptEnabled,
+                ScheduleWeekRange = scheme.ScheduleWeekRange,
+                PeriodCount = scheme.PeriodCount,
+                SemesterStartMonday = scheme.SemesterStartMonday,
+                SemesterTotalWeeks = scheme.SemesterTotalWeeks,
+                PeriodTimeRanges = scheme.PeriodTimeRanges ?? new List<PeriodTimeRange>()
+            };
         }
 
         public static void SaveConfig(AppConfig config)
         {
             try
             {
+                SchemeHelper.EnsureMigrated();
                 PathHelper.EnsureFolderExists();
+
                 var normalized = Normalize(config);
-                string json = JsonSerializer.Serialize(normalized, new JsonSerializerOptions
+
+                SchemeHelper.SaveGlobalSettings(new SchemeGlobalSettings
                 {
-                    WriteIndented = true
+                    Theme = normalized.Theme,
+                    MinimizeToTrayOnClose = normalized.MinimizeToTrayOnClose,
+                    ClosePromptEnabled = normalized.ClosePromptEnabled
                 });
 
-                File.WriteAllText(ConfigFilePath, json);
+                var currentId = SchemeHelper.GetCurrentSchemeId();
+                if (!string.IsNullOrEmpty(currentId))
+                {
+                    var schemePath = SchemeHelper.GetSchemeConfigPath(currentId);
+                    var dir = Path.GetDirectoryName(schemePath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+                    var schemeJson = JsonSerializer.Serialize(new
+                    {
+                        normalized.ScheduleWeekRange,
+                        normalized.PeriodCount,
+                        normalized.SemesterStartMonday,
+                        normalized.SemesterTotalWeeks,
+                        normalized.PeriodTimeRanges
+                    }, new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Converters = { new PeriodTimeRangeJsonConverter() }
+                    });
+                    File.WriteAllText(schemePath, schemeJson);
+                }
             }
             catch
             {

@@ -32,12 +32,27 @@ namespace CourseList.Views
         {
             this.InitializeComponent();
             Loaded += HomePage_Loaded;
+            Unloaded += HomePage_Unloaded;
             TodayCourseRepeater.ItemsSource = _todayCourseCards;
         }
 
         private void HomePage_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
+            SchemeHelper.SchemeChanged += OnSchemeChanged;
             _ = LoadTodaySummaryAsync();
+        }
+
+        private void HomePage_Unloaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            SchemeHelper.SchemeChanged -= OnSchemeChanged;
+        }
+
+        private void OnSchemeChanged(object? sender, EventArgs e)
+        {
+            _ = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+            {
+                _ = LoadTodaySummaryAsync();
+            });
         }
 
         private async Task LoadTodaySummaryAsync()

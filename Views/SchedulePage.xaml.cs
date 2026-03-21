@@ -21,6 +21,10 @@ namespace CourseList.Views
 {
     public sealed partial class SchedulePage : Page
     {
+        private const double PeriodHeaderColumnWidth = 96;
+        private const double DayColumnMinWidth = 150;
+        private const double CourseContentWidth = 135;
+
         private List<Course> _courses = new List<Course>();
         private Dictionary<(int day, int period), Border> _cellMap = new();
         private bool _isScheduleGridInitialized = false;
@@ -36,9 +40,36 @@ namespace CourseList.Views
         {
             this.InitializeComponent();
             Loaded += SchedulePage_Loaded;
-            
+            Unloaded += SchedulePage_Unloaded;
+
             // 初始化时隐藏操作面板
             ExpandedPanel.Visibility = Visibility.Collapsed;
+        }
+
+        private void SchedulePage_Unloaded(object sender, RoutedEventArgs e)
+        {
+            SchemeHelper.SchemeChanged -= OnSchemeChanged;
+        }
+
+        private void OnSchemeChanged(object? sender, EventArgs e)
+        {
+            _ = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, async () =>
+            {
+                var config = ConfigHelper.LoadConfig();
+                _scheduleWeekRange = config.ScheduleWeekRange == 5 ? 5 : 7;
+                _periodCount = config.PeriodCount;
+                _periodTimeRanges = config.PeriodTimeRanges ?? new List<PeriodTimeRange>();
+                _semesterTotalWeeks = config.SemesterTotalWeeks <= 0 ? 20 : config.SemesterTotalWeeks;
+                _semesterStartMonday = NormalizeToMonday(config.SemesterStartMonday == default ? DateTime.Today : config.SemesterStartMonday);
+                _displayWeek = GetWeekIndexByDate(DateTime.Today);
+                if (_displayWeek < 1) _displayWeek = 1;
+                if (_displayWeek > _semesterTotalWeeks) _displayWeek = _semesterTotalWeeks;
+                ApplyWeekRangeVisibility();
+                await LoadCoursesAsync();
+                RebuildScheduleLayout();
+                BuildScheduleGrid();
+                UpdateWeekNavigationUi();
+            });
         }
 
         private async void SchedulePage_Loaded(object sender, RoutedEventArgs e)
@@ -56,6 +87,7 @@ namespace CourseList.Views
             // 先根据配置重建列（周六/周日列删除或保留），再生成课程单元格
             ApplyWeekRangeVisibility();
 
+            SchemeHelper.SchemeChanged += OnSchemeChanged;
             await LoadCoursesAsync();
             RebuildScheduleLayout();
             BuildScheduleGrid();
@@ -97,12 +129,20 @@ namespace CourseList.Views
             ScheduleGrid.ColumnDefinitions.Clear();
 
             // col=0
-            ScheduleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            ScheduleGrid.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = new GridLength(PeriodHeaderColumnWidth),
+                MinWidth = PeriodHeaderColumnWidth
+            });
 
             // col=1..N
             for (int col = 1; col <= dayColumnCount; col++)
             {
-                ScheduleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                ScheduleGrid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = new GridLength(1, GridUnitType.Star),
+                    MinWidth = DayColumnMinWidth
+                });
             }
 
             // 隐藏 row=0 且落在被删除列上的表头元素
@@ -349,6 +389,7 @@ namespace CourseList.Views
                 topBorder.Child = new StackPanel
                 {
                     Orientation = Orientation.Vertical,
+                    Width = CourseContentWidth,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     Spacing = 2
@@ -360,6 +401,7 @@ namespace CourseList.Views
                     {
                         Text = course.Name,
                         TextWrapping = TextWrapping.Wrap,
+                        TextAlignment = TextAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         Foreground = new SolidColorBrush(Colors.White),
                         FontSize = 16,
@@ -370,6 +412,7 @@ namespace CourseList.Views
                     {
                         Text = course.Teacher,
                         TextWrapping = TextWrapping.Wrap,
+                        TextAlignment = TextAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         Foreground = new SolidColorBrush(Colors.White),
                         FontSize = 14
@@ -379,6 +422,7 @@ namespace CourseList.Views
                     {
                         Text = course.Classroom,
                         TextWrapping = TextWrapping.Wrap,
+                        TextAlignment = TextAlignment.Center,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         Foreground = new SolidColorBrush(Colors.White),
                         FontSize = 14

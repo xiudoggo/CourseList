@@ -48,8 +48,9 @@ namespace CourseList.Views
             }
 
             // 兜底：如果 MenuItems 为空，直接导航
-            if (ContentFrame?.CurrentSourcePageType != typeof(HomePage))
-                ContentFrame.Navigate(typeof(HomePage)); 
+            var frame = ContentFrame;
+            if (frame != null && frame.CurrentSourcePageType != typeof(HomePage))
+                frame.Navigate(typeof(HomePage));
         }
 
         /// <summary>

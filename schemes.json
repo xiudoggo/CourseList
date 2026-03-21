@@ -1,0 +1,20 @@
+{
+  "Theme": "Light",
+  "MinimizeToTrayOnClose": false,
+  "ClosePromptEnabled": false,
+  "CurrentSchemeId": "c393cba725c14d47a2671beac9bf74bc",
+  "Schemes": [
+    {
+      "Id": "1f00a2ccbf7e4323838cf24d19a98c0f",
+      "Name": "default"
+    },
+    {
+      "Id": "508781bc348b4436aaa8d83c37a8521e",
+      "Name": "1"
+    },
+    {
+      "Id": "c393cba725c14d47a2671beac9bf74bc",
+      "Name": "导入方案1"
+    }
+  ]
+}

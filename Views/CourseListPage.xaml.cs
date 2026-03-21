@@ -33,6 +33,23 @@ namespace CourseList.Views
             RebuildPeriodFilterCombo();
 
             Loaded += CourseListPage_Loaded;
+            Unloaded += CourseListPage_Unloaded;
+        }
+
+        private void CourseListPage_Unloaded(object sender, RoutedEventArgs e)
+        {
+            SchemeHelper.SchemeChanged -= OnSchemeChanged;
+        }
+
+        private void OnSchemeChanged(object? sender, EventArgs e)
+        {
+            _ = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, async () =>
+            {
+                var config = ConfigHelper.LoadConfig();
+                _maxPeriods = config.PeriodCount;
+                RebuildPeriodFilterCombo();
+                await LoadCoursesAsync();
+            });
         }
 
         private void RebuildPeriodFilterCombo()
@@ -52,6 +69,7 @@ namespace CourseList.Views
 
         private async void CourseListPage_Loaded(object sender, RoutedEventArgs e)
         {
+            SchemeHelper.SchemeChanged += OnSchemeChanged;
             await LoadCoursesAsync();
         }
 

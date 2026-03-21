@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using System.Collections.Generic;
 using System.Linq;
 using CourseList.Helpers;
 
@@ -65,6 +66,7 @@ namespace CourseList.Views
             SemesterTotalWeeksBox.Value = _config.SemesterTotalWeeks;
             RebuildPeriodTimeInputs();
 
+            RefreshSchemeComboBox();
             _isInitializing = false;
         }
 
@@ -139,11 +141,268 @@ namespace CourseList.Views
                 SemesterStartDatePicker.Date = new DateTimeOffset(_config.SemesterStartMonday.Date);
                 SemesterTotalWeeksBox.Value = _config.SemesterTotalWeeks;
                 RebuildPeriodTimeInputs();
+
+                RefreshSchemeComboBox();
             }
             finally
             {
                 _isInitializing = false;
             }
+        }
+
+        private void RefreshSchemeComboBox()
+        {
+            var (schemes, currentId) = SchemeHelper.LoadSchemes();
+            SchemeComboBox.ItemsSource = schemes;
+            SchemeComboBox.SelectedItem = schemes.FirstOrDefault(s => s.Id == currentId);
+            UpdateSchemeButtonsState();
+        }
+
+        private void UpdateSchemeButtonsState()
+        {
+            var (schemes, currentId) = SchemeHelper.LoadSchemes();
+            var selected = SchemeComboBox.SelectedItem as SchemeInfo;
+            RenameSchemeBtn.IsEnabled = selected != null && selected.Id == currentId;
+            DeleteSchemeBtn.IsEnabled = schemes.Count > 1;
+        }
+
+        private void SchemeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializing || SchemeComboBox.SelectedItem is not SchemeInfo si)
+                return;
+
+            var currentId = SchemeHelper.GetCurrentSchemeId();
+            if (si.Id == currentId)
+            {
+                UpdateSchemeButtonsState();
+                return;
+            }
+
+            SchemeHelper.SetCurrentSchemeId(si.Id);
+            _config = ConfigHelper.LoadConfig();
+            _isInitializing = true;
+            foreach (ComboBoxItem item in WeekRangeComboBox.Items)
+            {
+                var tag = item.Tag as string;
+                if (int.TryParse(tag, out var range) && range == _config.ScheduleWeekRange)
+                {
+                    WeekRangeComboBox.SelectedItem = item;
+                    break;
+                }
+            }
+            EnsurePeriodTimeRangesCapacity(20);
+            PeriodCountBox.Value = _config.PeriodCount;
+            SemesterStartDatePicker.Date = new DateTimeOffset(_config.SemesterStartMonday.Date);
+            SemesterTotalWeeksBox.Value = _config.SemesterTotalWeeks;
+            RebuildPeriodTimeInputs();
+            _periodTimeDirty = false;
+            ConfirmPeriodChangesButton.IsEnabled = false;
+            _isInitializing = false;
+            UpdateSchemeButtonsState();
+            SystemNotificationHelper.Show("课表方案", $"已切换到「{si.Name}」");
+        }
+
+        private async void AddSchemeBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var nameBox = new TextBox
+            {
+                Header = "方案名称",
+                PlaceholderText = "输入方案名称",
+                Width = 280
+            };
+            var copyCheck = new CheckBox
+            {
+                Content = "复制当前方案的课程和设置",
+                IsChecked = true
+            };
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(nameBox);
+            panel.Children.Add(copyCheck);
+
+            var dialog = new ContentDialog
+            {
+                Title = "新建方案",
+                Content = panel,
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                XamlRoot = this.XamlRoot,
+                RequestedTheme = this.ActualTheme
+            };
+
+            var result = await ContentDialogGuard.ShowAsync(dialog);
+            if (result != ContentDialogResult.Primary)
+                return;
+
+            var name = nameBox.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                ShowToast("请输入方案名称");
+                return;
+            }
+
+            var currentId = SchemeHelper.GetCurrentSchemeId();
+            var copyFromId = copyCheck.IsChecked == true ? currentId : null;
+            var newId = SchemeHelper.CreateScheme(name, copyFromId);
+            if (newId != null)
+            {
+                SchemeHelper.SetCurrentSchemeId(newId);
+                _config = ConfigHelper.LoadConfig();
+                _isInitializing = true;
+                foreach (ComboBoxItem item in WeekRangeComboBox.Items)
+                {
+                    var tag = item.Tag as string;
+                    if (int.TryParse(tag, out var range) && range == _config.ScheduleWeekRange)
+                    {
+                        WeekRangeComboBox.SelectedItem = item;
+                        break;
+                    }
+                }
+                EnsurePeriodTimeRangesCapacity(20);
+                PeriodCountBox.Value = _config.PeriodCount;
+                SemesterStartDatePicker.Date = new DateTimeOffset(_config.SemesterStartMonday.Date);
+                SemesterTotalWeeksBox.Value = _config.SemesterTotalWeeks;
+                RebuildPeriodTimeInputs();
+                _periodTimeDirty = false;
+                ConfirmPeriodChangesButton.IsEnabled = false;
+                _isInitializing = false;
+                RefreshSchemeComboBox();
+                SystemNotificationHelper.Show("课表方案", $"已创建「{name}」");
+            }
+        }
+
+        private async void RenameSchemeBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var currentId = SchemeHelper.GetCurrentSchemeId();
+            var (schemes, _) = SchemeHelper.LoadSchemes();
+            var current = schemes.FirstOrDefault(s => s.Id == currentId);
+            if (current == null)
+                return;
+
+            var nameBox = new TextBox
+            {
+                Header = "新名称",
+                Text = current.Name,
+                Width = 280
+            };
+            var dialog = new ContentDialog
+            {
+                Title = "重命名方案",
+                Content = nameBox,
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                XamlRoot = this.XamlRoot,
+                RequestedTheme = this.ActualTheme
+            };
+
+            var result = await ContentDialogGuard.ShowAsync(dialog);
+            if (result != ContentDialogResult.Primary)
+                return;
+
+            var newName = nameBox.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(newName))
+            {
+                ShowToast("请输入新名称");
+                return;
+            }
+
+            if (SchemeHelper.RenameScheme(currentId, newName))
+            {
+                RefreshSchemeComboBox();
+                ShowToast("已重命名");
+            }
+        }
+
+        private async void DeleteSchemeBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var currentId = SchemeHelper.GetCurrentSchemeId();
+            var (schemes, _) = SchemeHelper.LoadSchemes();
+            if (schemes.Count <= 1)
+            {
+                ShowToast("至少需保留一个方案");
+                return;
+            }
+
+            var listPanel = new StackPanel { Spacing = 8 };
+            var radioButtons = new List<RadioButton>();
+            foreach (var scheme in schemes)
+            {
+                bool isCurrent = scheme.Id == currentId;
+                var rb = new RadioButton
+                {
+                    Content = isCurrent ? $"{scheme.Name}（当前方案无法删除）" : scheme.Name,
+                    Tag = scheme.Id,
+                    IsEnabled = !isCurrent
+                };
+                radioButtons.Add(rb);
+                listPanel.Children.Add(rb);
+            }
+
+            var pickerDialog = new ContentDialog
+            {
+                Title = "选择要删除的方案",
+                Content = new ScrollViewer
+                {
+                    MaxHeight = 320,
+                    Content = listPanel
+                },
+                PrimaryButtonText = "删除",
+                CloseButtonText = "取消",
+                XamlRoot = this.XamlRoot,
+                RequestedTheme = this.ActualTheme
+            };
+
+            var result = await ContentDialogGuard.ShowAsync(pickerDialog);
+            if (result != ContentDialogResult.Primary)
+                return;
+
+            var target = radioButtons.FirstOrDefault(r => r.IsChecked == true);
+            if (target?.Tag is not string targetId || string.IsNullOrEmpty(targetId))
+            {
+                ShowToast("请先选择一个方案");
+                return;
+            }
+
+            var targetScheme = schemes.FirstOrDefault(s => s.Id == targetId);
+            if (targetScheme == null)
+                return;
+
+            var confirmDialog = new ContentDialog
+            {
+                Title = "确认删除？",
+                Content = $"确定要删除方案「{targetScheme.Name}」吗？该方案下的课程和设置将被移除，且无法恢复。",
+                PrimaryButtonText = "删除",
+                CloseButtonText = "取消",
+                XamlRoot = this.XamlRoot,
+                RequestedTheme = this.ActualTheme
+            };
+
+            var confirmResult = await ContentDialogGuard.ShowAsync(confirmDialog);
+            if (confirmResult != ContentDialogResult.Primary)
+                return;
+
+            if (SchemeHelper.DeleteScheme(targetId))
+            {
+                RefreshSchemeComboBox();
+                SystemNotificationHelper.Show("课表方案", $"已删除「{targetScheme.Name}」");
+            }
+        }
+
+        private void OpenImportButton_Click(object sender, RoutedEventArgs e)
+        {
+            ImportWebViewWindow.OpenOrActivate();
+        }
+
+        private void ShowToast(string message)
+        {
+            var toast = new ContentDialog
+            {
+                Title = "提示",
+                Content = message,
+                CloseButtonText = "确定",
+                XamlRoot = this.XamlRoot,
+                RequestedTheme = this.ActualTheme
+            };
+            _ = ContentDialogGuard.ShowAsync(toast);
         }
 
     

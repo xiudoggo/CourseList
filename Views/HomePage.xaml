@@ -6,8 +6,24 @@
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
 
     <Page.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <LinearGradientBrush x:Key="TodayCourseCardGradientBrush" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FFFFFFFF" Offset="0"/>
+                        <GradientStop Color="#FFF2F7FF" Offset="1"/>
+                    </LinearGradientBrush>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <LinearGradientBrush x:Key="TodayCourseCardGradientBrush" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FF252526" Offset="0"/>
+                        <GradientStop Color="#FF1C2333" Offset="1"/>
+                    </LinearGradientBrush>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
         <DataTemplate x:Key="TodayCourseCardTemplate" x:DataType="local:TodayCourseCardItem">
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <Border Background="{ThemeResource TodayCourseCardGradientBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                     BorderThickness="1"
                     CornerRadius="16"
@@ -57,17 +73,29 @@
                                    TextTrimming="CharacterEllipsis"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                        <TextBlock Grid.Row="3"
-                                   Text="{x:Bind TimeText}"
-                                   Margin="0,5,0,0"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
-                                   TextWrapping="NoWrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <StackPanel Grid.Row="3" Margin="0,5,0,0" Spacing="1" HorizontalAlignment="Left">
+                            <TextBlock x:Name="TimeTextBlock"
+                                       Text="{x:Bind TimeText}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="NoWrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Border Height="1"
+                                    Width="{Binding ElementName=TimeTextBlock, Path=ActualWidth}"
+                                    HorizontalAlignment="Left"
+                                    Background="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Opacity="0.85"/>
+                            <Border Height="1"
+                                    Width="{Binding ElementName=TimeTextBlock, Path=ActualWidth}"
+                                    HorizontalAlignment="Left"
+                                    Background="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Opacity="0.65"/>
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </Border>
         </DataTemplate>
+        </ResourceDictionary>
     </Page.Resources>
 
     <ScrollViewer>
