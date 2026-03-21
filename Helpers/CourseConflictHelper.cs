@@ -29,6 +29,15 @@ namespace CourseList.Helpers
                 if (existing.DayOfWeek != newCourse.DayOfWeek)
                     continue;
 
+                // 周次范围无交集：不冲突
+                int existingFrom = existing.FromWeek <= 0 ? 1 : existing.FromWeek;
+                int existingTo = existing.ToWeek <= 0 ? int.MaxValue : existing.ToWeek;
+                int newFrom = newCourse.FromWeek <= 0 ? 1 : newCourse.FromWeek;
+                int newTo = newCourse.ToWeek <= 0 ? int.MaxValue : newCourse.ToWeek;
+                bool hasWeekOverlap = existingFrom <= newTo && newFrom <= existingTo;
+                if (!hasWeekOverlap)
+                    continue;
+
                 // 都不是“全周”且周类型不同：允许共用
                 if (existing.WeekType != 0 && newCourse.WeekType != 0 && existing.WeekType != newCourse.WeekType)
                     continue;

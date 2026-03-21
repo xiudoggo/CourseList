@@ -56,7 +56,7 @@ namespace CourseList.Views
                 _ => "今天"
             };
 
-            TodayWeekdayText.Text = $"今天是{weekdayText}";
+            TodayDateWeekdayText.Text = $"{DateTime.Now:yyyy/M/d} {weekdayText}";
 
             // 2) 今天课程卡片（按连续节次分段，不连续则拆成多张）
             var courses = await CourseDataHelper.LoadCoursesAsync();
@@ -86,9 +86,12 @@ namespace CourseList.Views
             var result = new List<TodayCourseCardItem>();
             int periodCount = Math.Max(1, config?.PeriodCount ?? 11);
             var periodTimeRanges = config?.PeriodTimeRanges ?? new List<PeriodTimeRange>();
+            int totalWeeks = Math.Max(1, config?.SemesterTotalWeeks ?? 20);
+            var semesterStartMonday = NormalizeToMonday((config?.SemesterStartMonday ?? DateTime.Today).Date);
+            int currentWeek = GetWeekIndexByDate(DateTime.Today, semesterStartMonday, totalWeeks);
 
             var todayCourses = allCourses
-                .Where(c => c.DayOfWeek == today)
+                .Where(c => c.DayOfWeek == today && IsCourseActiveInWeek(c, currentWeek, totalWeeks))
                 .ToList();
 
             foreach (var course in todayCourses)
@@ -229,6 +232,39 @@ namespace CourseList.Views
 
             segments.Add((segStart, prev));
             return segments;
+        }
+
+        private static DateTime NormalizeToMonday(DateTime date)
+        {
+            var d = date.Date;
+            int diff = ((int)d.DayOfWeek + 6) % 7;
+            return d.AddDays(-diff).Date;
+        }
+
+        private static int GetWeekIndexByDate(DateTime date, DateTime semesterStartMonday, int totalWeeks)
+        {
+            int days = (int)(date.Date - semesterStartMonday.Date).TotalDays;
+            int week = days >= 0 ? (days / 7) + 1 : 1;
+            return Math.Clamp(week, 1, totalWeeks);
+        }
+
+        private static bool IsCourseActiveInWeek(Course course, int week, int totalWeeks)
+        {
+            int fromWeek = course.FromWeek <= 0 ? 1 : course.FromWeek;
+            int toWeek = course.ToWeek <= 0 ? totalWeeks : course.ToWeek;
+            if (fromWeek > toWeek)
+                (fromWeek, toWeek) = (toWeek, fromWeek);
+
+            bool inRange = week >= fromWeek && week <= toWeek;
+            if (!inRange)
+                return false;
+
+            return course.WeekType switch
+            {
+                1 => week % 2 == 1,
+                2 => week % 2 == 0,
+                _ => true
+            };
         }
     }
 }

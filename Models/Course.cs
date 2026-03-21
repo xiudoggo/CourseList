@@ -20,6 +20,8 @@ namespace CourseList.Models
         public List<int> ClassPeriods { get; set; } = new();
         public string Color { get; set; } = string.Empty;
         public int WeekType { get; set; } // 0:全周，1:单周，2:双周
+        public int FromWeek { get; set; } = 1;
+        public int ToWeek { get; set; } = 20;
         public string? Note { get; set; }
         
         /// <summary>

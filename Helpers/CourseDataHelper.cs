@@ -43,9 +43,10 @@ namespace CourseList.Helpers
                 }
 
                 string json = await File.ReadAllTextAsync(CourseFilePath);
-
-                return JsonSerializer.Deserialize<List<Course>>(json)
-                       ?? new List<Course>();
+                var courses = JsonSerializer.Deserialize<List<Course>>(json)
+                              ?? new List<Course>();
+                NormalizeCourseWeeks(courses);
+                return courses;
             }
             catch
             {
@@ -59,6 +60,7 @@ namespace CourseList.Helpers
             try
             {
                 PathHelper.EnsureFolderExists();
+                NormalizeCourseWeeks(courses);
                 // 保存时先拍一个快照，避免调用方在序列化期间修改列表造成不一致
                 var snapshot = courses.ToList();
 
@@ -108,6 +110,29 @@ namespace CourseList.Helpers
 
             // 真正落盘发生在后台去抖任务中
             return Task.CompletedTask;
+        }
+
+        private static void NormalizeCourseWeeks(List<Course> courses)
+        {
+            if (courses == null || courses.Count == 0)
+                return;
+
+            int totalWeeks = ConfigHelper.LoadConfig().SemesterTotalWeeks;
+            if (totalWeeks < 1)
+                totalWeeks = 20;
+
+            foreach (var course in courses)
+            {
+                if (course.FromWeek <= 0)
+                    course.FromWeek = 1;
+                if (course.ToWeek <= 0)
+                    course.ToWeek = totalWeeks;
+
+                course.FromWeek = Math.Clamp(course.FromWeek, 1, totalWeeks);
+                course.ToWeek = Math.Clamp(course.ToWeek, 1, totalWeeks);
+                if (course.FromWeek > course.ToWeek)
+                    (course.FromWeek, course.ToWeek) = (course.ToWeek, course.FromWeek);
+            }
         }
     }
 }

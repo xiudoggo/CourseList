@@ -10,7 +10,9 @@
       2
     ],
     "Color": "#000000",
-    "WeekType": 0,
+    "WeekType": 1,
+    "FromWeek": 1,
+    "ToWeek": 20,
     "Note": "这是个严厉的老师！！！",
     "ScheduleDisplay": "周一 第1, 2节"
   },
@@ -28,6 +30,8 @@
     ],
     "Color": "#FF3B63",
     "WeekType": 0,
+    "FromWeek": 1,
+    "ToWeek": 20,
     "Note": "杀人王",
     "ScheduleDisplay": "周二 第3, 4, 6, 7节"
   },
@@ -46,6 +50,8 @@
     ],
     "Color": "#3B787A",
     "WeekType": 0,
+    "FromWeek": 1,
+    "ToWeek": 20,
     "Note": "很好的老头子，除了会点名以外",
     "ScheduleDisplay": "周四 第7, 8, 9, 10, 11节"
   },
@@ -62,6 +68,8 @@
     ],
     "Color": "#0000FF",
     "WeekType": 0,
+    "FromWeek": 1,
+    "ToWeek": 20,
     "Note": "",
     "ScheduleDisplay": "周一 第5, 6, 7节"
   },
@@ -77,6 +85,8 @@
     ],
     "Color": "#876146",
     "WeekType": 0,
+    "FromWeek": 1,
+    "ToWeek": 20,
     "Note": "zdh 永远的神！！！",
     "ScheduleDisplay": "周五 第1, 2节"
   },
@@ -92,6 +102,8 @@
     ],
     "Color": "#115942",
     "WeekType": 0,
+    "FromWeek": 1,
+    "ToWeek": 20,
     "Note": "",
     "ScheduleDisplay": "周一 第3, 4节"
   },
@@ -107,6 +119,8 @@
     ],
     "Color": "#8C2F52",
     "WeekType": 0,
+    "FromWeek": 1,
+    "ToWeek": 17,
     "Note": "",
     "ScheduleDisplay": "周二 第1, 5节"
   },
@@ -127,6 +141,8 @@
     ],
     "Color": "#FF546F",
     "WeekType": 0,
+    "FromWeek": 1,
+    "ToWeek": 20,
     "Note": "test",
     "ScheduleDisplay": "周六 第1, 3, 5, 7, 8, 9, 11节"
   },
@@ -137,7 +153,6 @@
     "Classroom": "123",
     "DayOfWeek": 6,
     "ClassPeriods": [
-      2,
       4,
       6,
       10,
@@ -145,7 +160,25 @@
     ],
     "Color": "#4760C2",
     "WeekType": 0,
+    "FromWeek": 1,
+    "ToWeek": 20,
     "Note": "",
-    "ScheduleDisplay": "周六 第2, 4, 6, 10, 12节"
+    "ScheduleDisplay": "周六 第4, 6, 10, 12节"
+  },
+  {
+    "Id": 84319,
+    "Name": "test3",
+    "Teacher": "teacher3",
+    "Classroom": "333",
+    "DayOfWeek": 6,
+    "ClassPeriods": [
+      2
+    ],
+    "Color": "#989C75",
+    "WeekType": 2,
+    "FromWeek": 1,
+    "ToWeek": 21,
+    "Note": "",
+    "ScheduleDisplay": "周六 第2节"
   }
 ]

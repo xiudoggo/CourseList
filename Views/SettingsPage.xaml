@@ -61,6 +61,20 @@
                 <StackPanel Grid.Column="1" HorizontalAlignment="Left">
                     <TextBlock Text="课程表功能设置" Style="{StaticResource SettingsTitleStyle}"/>
 
+                    <TextBlock Text="学期第1周周一（可从日历选择）" Style="{StaticResource SettingsSectionLabelStyle}"/>
+                    <DatePicker x:Name="SemesterStartDatePicker"
+                                Width="240"
+                                DateChanged="SemesterStartDatePicker_DateChanged"
+                                HorizontalAlignment="Left"/>
+
+                    <TextBlock Text="学期总周数" Style="{StaticResource SettingsSectionLabelStyle}"/>
+                    <NumberBox x:Name="SemesterTotalWeeksBox"
+                                Minimum="1"
+                                Maximum="30"
+                                ValueChanged="SemesterTotalWeeksBox_ValueChanged"
+                                Width="240"
+                                HorizontalAlignment="Left"/>
+
                     <TextBlock Text="课程表显示范围" Style="{StaticResource SettingsSectionLabelStyle}"/>
                     <ComboBox x:Name="WeekRangeComboBox"
                               SelectionChanged="WeekRangeChanged"

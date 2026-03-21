@@ -24,8 +24,21 @@ namespace CourseList.Helpers
         // 每天的节数（默认 11）
         public int PeriodCount { get; set; } = 11;
 
+        // 学期第 1 周的周一日期
+        public DateTime SemesterStartMonday { get; set; } = GetCurrentWeekMonday();
+
+        // 学期总周数（用于周次切换与课程起止周上限）
+        public int SemesterTotalWeeks { get; set; } = 20;
+
         // 每节开始与结束时间（长度应与 PeriodCount 对齐；索引 i => 第 i+1 节）
         public List<PeriodTimeRange> PeriodTimeRanges { get; set; } = new List<PeriodTimeRange>();
+
+        private static DateTime GetCurrentWeekMonday()
+        {
+            var today = DateTime.Today;
+            int diff = ((int)today.DayOfWeek + 6) % 7; // Monday=0
+            return today.AddDays(-diff).Date;
+        }
     }
 
     [JsonConverter(typeof(PeriodTimeRangeJsonConverter))]
@@ -149,6 +162,7 @@ namespace CourseList.Helpers
             PathHelper.GetFullPath("config.json");
 
         private const int MaxPeriodCount = 20;
+        private const int MaxSemesterWeeks = 30;
 
         public static AppConfig LoadConfig()
         {
@@ -202,6 +216,17 @@ namespace CourseList.Helpers
             else if (config.PeriodCount > 20)
                 config.PeriodCount = MaxPeriodCount;
 
+            // 学期总周数安全范围：1..30
+            if (config.SemesterTotalWeeks < 1)
+                config.SemesterTotalWeeks = 1;
+            else if (config.SemesterTotalWeeks > MaxSemesterWeeks)
+                config.SemesterTotalWeeks = MaxSemesterWeeks;
+
+            // 学期起始日期兜底，并规范到“周一”
+            if (config.SemesterStartMonday == default)
+                config.SemesterStartMonday = DateTime.Today;
+            config.SemesterStartMonday = NormalizeToMonday(config.SemesterStartMonday);
+
             config.PeriodTimeRanges ??= new List<PeriodTimeRange>();
 
             // 将可能的 null 元素替换为 ""，避免后续 UI 绑定时报错
@@ -224,6 +249,13 @@ namespace CourseList.Helpers
             }
 
             return config;
+        }
+
+        private static DateTime NormalizeToMonday(DateTime date)
+        {
+            var d = date.Date;
+            int diff = ((int)d.DayOfWeek + 6) % 7; // Monday=0
+            return d.AddDays(-diff).Date;
         }
     }
 }

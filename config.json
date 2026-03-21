@@ -4,6 +4,8 @@
   "ClosePromptEnabled": false,
   "ScheduleWeekRange": 7,
   "PeriodCount": 12,
+  "SemesterStartMonday": "2026-03-09T00:00:00",
+  "SemesterTotalWeeks": 20,
   "PeriodTimeRanges": [
     {
       "StartTime": "08:30",

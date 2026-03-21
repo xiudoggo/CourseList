@@ -61,6 +61,8 @@ namespace CourseList.Views
             // 每日节数 + 每节时间
             EnsurePeriodTimeRangesCapacity(20);
             PeriodCountBox.Value = _config.PeriodCount;
+            SemesterStartDatePicker.Date = new DateTimeOffset(_config.SemesterStartMonday.Date);
+            SemesterTotalWeeksBox.Value = _config.SemesterTotalWeeks;
             RebuildPeriodTimeInputs();
 
             _isInitializing = false;
@@ -134,6 +136,8 @@ namespace CourseList.Views
 
                 EnsurePeriodTimeRangesCapacity(20);
                 PeriodCountBox.Value = _config.PeriodCount;
+                SemesterStartDatePicker.Date = new DateTimeOffset(_config.SemesterStartMonday.Date);
+                SemesterTotalWeeksBox.Value = _config.SemesterTotalWeeks;
                 RebuildPeriodTimeInputs();
             }
             finally
@@ -184,6 +188,42 @@ namespace CourseList.Views
                 return;
 
             _config.ScheduleWeekRange = range;
+            _ = Task.Run(() => ConfigHelper.SaveConfig(_config));
+        }
+
+        private void SemesterStartDatePicker_DateChanged(object sender, DatePickerValueChangedEventArgs args)
+        {
+            if (_isInitializing || _config == null)
+                return;
+
+            if (sender is not DatePicker picker)
+                return;
+
+            var selectedDate = picker.Date.Date;
+            int diff = ((int)selectedDate.DayOfWeek + 6) % 7; // Monday=0
+            var monday = selectedDate.AddDays(-diff).Date;
+
+            if (_config.SemesterStartMonday.Date == monday)
+                return;
+
+            _config.SemesterStartMonday = monday;
+            picker.Date = new DateTimeOffset(monday);
+            _ = Task.Run(() => ConfigHelper.SaveConfig(_config));
+        }
+
+        private void SemesterTotalWeeksBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+        {
+            if (_isInitializing || _config == null)
+                return;
+
+            int weeks = (int)Math.Round(sender.Value);
+            weeks = Math.Clamp(weeks, 1, 30);
+
+            if (_config.SemesterTotalWeeks == weeks)
+                return;
+
+            _config.SemesterTotalWeeks = weeks;
+            sender.Value = weeks;
             _ = Task.Run(() => ConfigHelper.SaveConfig(_config));
         }
 

@@ -28,6 +28,9 @@ namespace CourseList.Views
         private int _scheduleWeekRange = 7;
         private int _periodCount = 11;
         private List<PeriodTimeRange> _periodTimeRanges = new List<PeriodTimeRange>();
+        private DateTime _semesterStartMonday = DateTime.Today;
+        private int _semesterTotalWeeks = 20;
+        private int _displayWeek = 1;
 
         public SchedulePage()
         {
@@ -44,6 +47,11 @@ namespace CourseList.Views
             _scheduleWeekRange = config.ScheduleWeekRange == 5 ? 5 : 7;
             _periodCount = config.PeriodCount;
             _periodTimeRanges = config.PeriodTimeRanges ?? new List<PeriodTimeRange>();
+            _semesterTotalWeeks = config.SemesterTotalWeeks <= 0 ? 20 : config.SemesterTotalWeeks;
+            _semesterStartMonday = NormalizeToMonday(config.SemesterStartMonday == default ? DateTime.Today : config.SemesterStartMonday);
+            _displayWeek = GetWeekIndexByDate(DateTime.Today);
+            if (_displayWeek < 1) _displayWeek = 1;
+            if (_displayWeek > _semesterTotalWeeks) _displayWeek = _semesterTotalWeeks;
 
             // 先根据配置重建列（周六/周日列删除或保留），再生成课程单元格
             ApplyWeekRangeVisibility();
@@ -51,7 +59,10 @@ namespace CourseList.Views
             await LoadCoursesAsync();
             RebuildScheduleLayout();
             BuildScheduleGrid();
+            UpdateWeekNavigationUi();
+
         }
+
 
         private async Task LoadCoursesAsync()
         {
@@ -62,12 +73,14 @@ namespace CourseList.Views
         {
             EnsureScheduleGridInitialized();
             ClearAllCourseCells();
+            UpdateHeaderDates();
 
             // 填充课程（只更新内容，不重建单元格）
             foreach (var course in _courses)
             {
                 ApplyCourseToCells(course);
             }
+            UpdateWeekNavigationUi();
         }
 
         private void ApplyWeekRangeVisibility()
@@ -313,6 +326,8 @@ namespace CourseList.Views
 
             var segments = GetConsecutiveSegments(sortedDistinctPeriods);
             var courseColor = new SolidColorBrush(ColorHelperFromHex(course.Color));
+            bool isActive = IsCourseActiveInWeek(course, _displayWeek);
+            double targetOpacity = isActive ? 1.0 : 0.35;
 
             foreach (var (startPeriod, endPeriod) in segments)
             {
@@ -327,6 +342,8 @@ namespace CourseList.Views
                 topBorder.Background = courseColor;
                 topBorder.BorderBrush = null;
                 topBorder.BorderThickness = new Thickness(0);
+                topBorder.Opacity = targetOpacity;
+                topBorder.IsHitTestVisible = isActive;
                 Grid.SetRowSpan(topBorder, spanLen);
 
                 topBorder.Child = new StackPanel
@@ -366,9 +383,25 @@ namespace CourseList.Views
                         Foreground = new SolidColorBrush(Colors.White),
                         FontSize = 14
                     });
+
+                    if (!isActive)
+                    {
+                        sp.Children.Add(new TextBlock
+                        {
+                            Text = "（非本周）",
+                            TextWrapping = TextWrapping.NoWrap,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            Foreground = new SolidColorBrush(Colors.White),
+                            FontSize = 12,
+                            FontWeight = FontWeights.SemiBold
+                        });
+                    }
                 }
 
-                _courseCellMap[topBorder] = course;
+                if (isActive)
+                {
+                    _courseCellMap[topBorder] = course;
+                }
 
                 // 折叠掉连续段中后续的每节 Border，避免重复显示，也避免出现“分隔缝”
                 for (int p = startPeriod + 1; p <= endPeriod; p++)
@@ -382,6 +415,8 @@ namespace CourseList.Views
                     border.Child = null;
                     border.BorderBrush = null;
                     border.BorderThickness = new Thickness(0);
+                    border.Opacity = 1.0;
+                    border.IsHitTestVisible = false;
                     Grid.SetRowSpan(border, 1);
                 }
             }
@@ -397,6 +432,8 @@ namespace CourseList.Views
             border.BorderBrush = null;
             border.BorderThickness = new Thickness(0);
             border.Visibility = Visibility.Visible;
+            border.Opacity = 1.0;
+            border.IsHitTestVisible = true;
             Grid.SetRowSpan(border, 1);
 
             if (border.RenderTransform is ScaleTransform s)
@@ -565,9 +602,7 @@ namespace CourseList.Views
 
             _courses.Add(course);
             await CourseDataHelper.SaveCoursesAsync(_courses);
-            // 只更新受影响的单元格
-            ClearCourseCells(course);
-            ApplyCourseToCells(course);
+            BuildScheduleGrid();
             return true;
         }
 
@@ -580,6 +615,7 @@ namespace CourseList.Views
             ClearCourseCells(target);
             _courses.RemoveAll(c => c.Id == courseId);
             await CourseDataHelper.SaveCoursesAsync(_courses);
+            BuildScheduleGrid();
         }
 
         public async Task<bool> UpdateCourseAsync(Course course)
@@ -595,11 +631,9 @@ namespace CourseList.Views
                     return false;
                 }
 
-                var oldCourse = _courses[index];
-                ClearCourseCells(oldCourse);
                 _courses[index] = course;
                 await CourseDataHelper.SaveCoursesAsync(_courses);
-                ApplyCourseToCells(course);
+                BuildScheduleGrid();
                 return true;
             }
 
@@ -828,6 +862,119 @@ namespace CourseList.Views
             }
 
             return null;
+        }
+
+        private static DateTime NormalizeToMonday(DateTime date)
+        {
+            var d = date.Date;
+            int diff = ((int)d.DayOfWeek + 6) % 7; // Monday=0
+            return d.AddDays(-diff).Date;
+        }
+
+        private int GetWeekIndexByDate(DateTime date)
+        {
+            var d = date.Date;
+            int days = (int)(d - _semesterStartMonday.Date).TotalDays;
+            return days >= 0 ? (days / 7) + 1 : 1;
+        }
+
+        private bool IsCourseActiveInWeek(Course course, int week)
+        {
+            int fromWeek = course.FromWeek <= 0 ? 1 : course.FromWeek;
+            int toWeek = course.ToWeek <= 0 ? _semesterTotalWeeks : course.ToWeek;
+            if (fromWeek > toWeek)
+                (fromWeek, toWeek) = (toWeek, fromWeek);
+
+            bool inRange = week >= fromWeek && week <= toWeek;
+            if (!inRange)
+                return false;
+
+            return course.WeekType switch
+            {
+                1 => week % 2 == 1,
+                2 => week % 2 == 0,
+                _ => true
+            };
+        }
+
+        private void UpdateWeekNavigationUi()
+        {
+            if (CurrentWeekText == null || PrevWeekBtn == null || NextWeekBtn == null)
+                return;
+
+            var currentWeek = GetWeekIndexByDate(DateTime.Today);
+            bool isCurrentWeek = _displayWeek == currentWeek;
+
+            CurrentWeekText.Text = $"第 {_displayWeek} 周";
+            PrevWeekBtn.IsEnabled = _displayWeek > 1;
+            NextWeekBtn.IsEnabled = _displayWeek < _semesterTotalWeeks;
+            if (GoToCurrentWeekBtn != null)
+                GoToCurrentWeekBtn.IsEnabled = !isCurrentWeek;
+            if (NotCurrentWeekHint != null)
+                NotCurrentWeekHint.Visibility = isCurrentWeek ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void UpdateHeaderDates()
+        {
+            var weekMonday = _semesterStartMonday.AddDays((_displayWeek - 1) * 7);
+            if (HeaderMonthText != null)
+                HeaderMonthText.Text = $"{weekMonday.Month}月";
+
+            if (HeaderDateMon != null) HeaderDateMon.Text = $"{weekMonday:M/d}";
+            if (HeaderDateTue != null) HeaderDateTue.Text = $"{weekMonday.AddDays(1):M/d}";
+            if (HeaderDateWed != null) HeaderDateWed.Text = $"{weekMonday.AddDays(2):M/d}";
+            if (HeaderDateThu != null) HeaderDateThu.Text = $"{weekMonday.AddDays(3):M/d}";
+            if (HeaderDateFri != null) HeaderDateFri.Text = $"{weekMonday.AddDays(4):M/d}";
+            if (HeaderDateSat != null) HeaderDateSat.Text = $"{weekMonday.AddDays(5):M/d}";
+            if (HeaderDateSun != null) HeaderDateSun.Text = $"{weekMonday.AddDays(6):M/d}";
+        }
+
+        private void PrevWeekBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_displayWeek <= 1)
+                return;
+
+            _displayWeek--;
+            BuildScheduleGrid();
+        }
+
+        private void NextWeekBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (_displayWeek >= _semesterTotalWeeks)
+                return;
+
+            _displayWeek++;
+            BuildScheduleGrid();
+        }
+
+        private void GoToCurrentWeekBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (!GoToCurrentWeekBtn.IsEnabled)
+                return;
+            var currentWeek = GetWeekIndexByDate(DateTime.Today);
+            currentWeek = Math.Clamp(currentWeek, 1, _semesterTotalWeeks);
+            _displayWeek = currentWeek;
+            BuildScheduleGrid();
+        }
+
+        private void PrevWeekKeyboard_Invoked(Microsoft.UI.Xaml.Input.KeyboardAccelerator sender, Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs args)
+        {
+            if (_displayWeek > 1)
+            {
+                _displayWeek--;
+                BuildScheduleGrid();
+                args.Handled = true;
+            }
+        }
+
+        private void NextWeekKeyboard_Invoked(Microsoft.UI.Xaml.Input.KeyboardAccelerator sender, Microsoft.UI.Xaml.Input.KeyboardAcceleratorInvokedEventArgs args)
+        {
+            if (_displayWeek < _semesterTotalWeeks)
+            {
+                _displayWeek++;
+                BuildScheduleGrid();
+                args.Handled = true;
+            }
         }
 
         #endregion

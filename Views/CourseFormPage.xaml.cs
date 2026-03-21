@@ -19,7 +19,12 @@ namespace CourseList.Views
         {
             this.InitializeComponent();
 
-            _maxPeriods = ConfigHelper.LoadConfig().PeriodCount;
+            var config = ConfigHelper.LoadConfig();
+            _maxPeriods = config.PeriodCount;
+            FromWeekBox.Maximum = config.SemesterTotalWeeks;
+            ToWeekBox.Maximum = config.SemesterTotalWeeks;
+            FromWeekBox.Value = 1;
+            ToWeekBox.Value = config.SemesterTotalWeeks;
             
             // 跟随当前主题
             if (App.CurrentMainWindow?.Content is FrameworkElement root)
@@ -73,6 +78,10 @@ namespace CourseList.Views
 
             // 设置周类型
             WeekTypeCombo.SelectedIndex = course.WeekType;
+
+            // 设置起止周
+            FromWeekBox.Value = course.FromWeek <= 0 ? 1 : course.FromWeek;
+            ToWeekBox.Value = course.ToWeek < FromWeekBox.Value ? FromWeekBox.Value : course.ToWeek;
 
             NoteBox.Text = course.Note ?? "";
         }
@@ -131,6 +140,18 @@ namespace CourseList.Views
                     weekType = 0;
                 }
 
+                int fromWeek = (int)Math.Round(FromWeekBox.Value);
+                int toWeek = (int)Math.Round(ToWeekBox.Value);
+                int maxWeek = (int)Math.Round(FromWeekBox.Maximum);
+                if (maxWeek <= 0) maxWeek = 20;
+                fromWeek = Math.Clamp(fromWeek, 1, maxWeek);
+                toWeek = Math.Clamp(toWeek, 1, maxWeek);
+                if (fromWeek > toWeek)
+                {
+                    args.Cancel = true;
+                    return;
+                }
+
                 NewCourse = new Course
                 {
                     Id = _editingCourse?.Id ?? new Random().Next(1, 100000),
@@ -141,6 +162,8 @@ namespace CourseList.Views
                     ClassPeriods = periods,
                     Color = selectedColor,
                     WeekType = weekType,
+                    FromWeek = fromWeek,
+                    ToWeek = toWeek,
                     Note = NoteBox.Text
                 };
             }

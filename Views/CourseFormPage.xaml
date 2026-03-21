@@ -43,6 +43,25 @@
             <ComboBoxItem Content="双周" Tag="2"/>
         </ComboBox>
 
+        <Grid ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <NumberBox x:Name="FromWeekBox"
+                       Grid.Column="0"
+                       Header="起始周"
+                       Minimum="1"
+                       Maximum="30"
+                       SpinButtonPlacementMode="Inline"/>
+            <NumberBox x:Name="ToWeekBox"
+                       Grid.Column="1"
+                       Header="结束周"
+                       Minimum="1"
+                       Maximum="30"
+                       SpinButtonPlacementMode="Inline"/>
+        </Grid>
+
         <TextBox x:Name="NoteBox" Header="备注"/>
     </StackPanel>
         </ScrollViewer>

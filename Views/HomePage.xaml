@@ -82,8 +82,8 @@
                            FontSize="28"
                            FontWeight="Bold"/>
 
-                <TextBlock x:Name="TodayWeekdayText"
-                           Text="今天是星期一"
+                <TextBlock x:Name="TodayDateWeekdayText"
+                           Text="2026/3/21 星期五"
                            FontSize="28"/>
 
                 <TextBlock x:Name="TodayCourseSummaryText"
