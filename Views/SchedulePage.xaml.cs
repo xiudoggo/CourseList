@@ -16,6 +16,9 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml.Hosting;
 using System.Linq;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
+using Microsoft.UI.Xaml.Shapes;
 
 namespace CourseList.Views
 {
@@ -35,6 +38,20 @@ namespace CourseList.Views
         private DateTime _semesterStartMonday = DateTime.Today;
         private int _semesterTotalWeeks = 20;
         private int _displayWeek = 1;
+
+        private List<WeekScheduleOverride> _weekOverrides = new();
+        private const string DragPayloadKey = "CourseListScheduleDrag";
+
+        private Canvas? _scheduleDragOverlay;
+        private Rectangle? _scheduleDragPreviewRect;
+        private Border? _dragSourceBorder;
+        private double _dragSourceOpacity = 1;
+        private double _dragSourceScaleX = 0.95;
+        private double _dragSourceScaleY = 0.95;
+
+        /// <summary>拖拽过程中对连续行坐标 fr 做低通平滑，减轻虚线框在节次缝隙处抖动。</summary>
+        private double _dragRowSmoothFr = double.NaN;
+        private const double DragRowSmoothBlend = 0.26;
 
         public SchedulePage()
         {
@@ -93,12 +110,25 @@ namespace CourseList.Views
             BuildScheduleGrid();
             UpdateWeekNavigationUi();
 
+            WireScheduleGridDragSurface();
+        }
+
+        private void WireScheduleGridDragSurface()
+        {
+            ScheduleGrid.AllowDrop = true;
+            ScheduleGrid.DragOver -= ScheduleGrid_DragOver;
+            ScheduleGrid.DragOver += ScheduleGrid_DragOver;
+            ScheduleGrid.Drop -= ScheduleGrid_Drop;
+            ScheduleGrid.Drop += ScheduleGrid_Drop;
+            ScheduleGrid.DragLeave -= ScheduleGrid_DragLeave;
+            ScheduleGrid.DragLeave += ScheduleGrid_DragLeave;
         }
 
 
         private async Task LoadCoursesAsync()
         {
             _courses = await CourseDataHelper.LoadCoursesAsync();
+            _weekOverrides = await WeekScheduleOverrideHelper.LoadAsync();
         }
 
         private void BuildScheduleGrid()
@@ -112,6 +142,8 @@ namespace CourseList.Views
             {
                 ApplyCourseToCells(course);
             }
+
+            BringScheduleDragOverlayToTop();
             UpdateWeekNavigationUi();
         }
 
@@ -176,7 +208,11 @@ namespace CourseList.Views
             }
 
             foreach (var child in toRemove)
+            {
+                if (ReferenceEquals(child, _scheduleDragOverlay))
+                    continue;
                 ScheduleGrid.Children.Remove(child);
+            }
 
             ScheduleGrid.RowDefinitions.Clear();
 
@@ -191,6 +227,7 @@ namespace CourseList.Views
             _isScheduleGridInitialized = false;
 
             BuildPeriodHeaderCells();
+            // 拖放预览层在 EnsureScheduleGridInitialized 末尾创建/置顶
         }
 
         private void BuildPeriodHeaderCells()
@@ -279,6 +316,11 @@ namespace CourseList.Views
 
                     border.PointerPressed += CourseCell_PointerPressed;
                     border.DoubleTapped += CourseCell_DoubleTapped;
+                    border.DragStarting += ScheduleCell_DragStarting;
+                    border.DropCompleted += ScheduleCell_DropCompleted;
+                    border.AllowDrop = true;
+                    border.DragOver += ScheduleCell_DragOverForward;
+                    border.Drop += ScheduleCell_DropForward;
 
                     Grid.SetRow(border, row);
                     Grid.SetColumn(border, col);
@@ -288,6 +330,51 @@ namespace CourseList.Views
             }
 
             _isScheduleGridInitialized = true;
+            EnsureScheduleDragOverlay();
+        }
+
+        /// <summary>
+        /// 拖放命中由 ScheduleGrid 统一处理（折叠单元格不接收 Drop）；预览层盖在周列区域上方且不参与命中。
+        /// </summary>
+        private void EnsureScheduleDragOverlay()
+        {
+            int dc = _scheduleWeekRange == 7 ? 7 : 5;
+
+            if (_scheduleDragOverlay == null)
+            {
+                _scheduleDragOverlay = new Canvas
+                {
+                    IsHitTestVisible = false,
+                    Visibility = Visibility.Collapsed
+                };
+                _scheduleDragPreviewRect = new Rectangle
+                {
+                    Stroke = new SolidColorBrush(Color.FromArgb(220, 0, 120, 215)),
+                    StrokeThickness = 2,
+                    Fill = new SolidColorBrush(Color.FromArgb(35, 0, 120, 215)),
+                    StrokeDashArray = new DoubleCollection { 5, 4 },
+                    IsHitTestVisible = false,
+                    Visibility = Visibility.Collapsed
+                };
+                _scheduleDragOverlay.Children.Add(_scheduleDragPreviewRect);
+            }
+
+            if (!ScheduleGrid.Children.Contains(_scheduleDragOverlay))
+                ScheduleGrid.Children.Add(_scheduleDragOverlay);
+
+            Grid.SetRow(_scheduleDragOverlay, 1);
+            Grid.SetColumn(_scheduleDragOverlay, 1);
+            Grid.SetRowSpan(_scheduleDragOverlay, _periodCount);
+            Grid.SetColumnSpan(_scheduleDragOverlay, dc);
+        }
+
+        /// <summary>保证预览层画在所有课程格之上（Grid 后添加的子元素在上层）。</summary>
+        private void BringScheduleDragOverlayToTop()
+        {
+            if (_scheduleDragOverlay == null || !ScheduleGrid.Children.Contains(_scheduleDragOverlay))
+                return;
+            ScheduleGrid.Children.Remove(_scheduleDragOverlay);
+            ScheduleGrid.Children.Add(_scheduleDragOverlay);
         }
 
         private void ClearAllCourseCells()
@@ -304,6 +391,7 @@ namespace CourseList.Views
                 border.BorderBrush = null;
                 border.BorderThickness = new Thickness(0);
                 border.Visibility = Visibility.Visible;
+                border.CanDrag = false;
                 Grid.SetRowSpan(border, 1);
 
                 if (border.RenderTransform is ScaleTransform s)
@@ -343,25 +431,27 @@ namespace CourseList.Views
 
         private void ApplyCourseToCells(Course course)
         {
+            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrides);
+
             // 只显示工作日：跳过周六/周日课程
             if (_scheduleWeekRange == 5 &&
-                (course.DayOfWeek == DayOfWeek.Saturday || course.DayOfWeek == DayOfWeek.Sunday))
+                (effDay == DayOfWeek.Saturday || effDay == DayOfWeek.Sunday))
             {
                 return;
             }
 
-            int dayOffset = (int)course.DayOfWeek - 1; // Monday=1 -> index 0
+            int dayOffset = (int)effDay - 1; // Monday=1 -> index 0
             if (dayOffset < 0) dayOffset = 6; // Sunday=7 -> index 6
             int dayCol = dayOffset + 1;
 
             // 生成连续段：例如 [1,2,3,5] => (1..3), (5..5)
-            var sortedDistinctPeriods = course.ClassPeriods?
+            var sortedDistinctPeriods = effPeriods
                 .Where(p => p >= 1 && p <= _periodCount)
                 .Distinct()
                 .OrderBy(p => p)
                 .ToList();
 
-            if (sortedDistinctPeriods == null || sortedDistinctPeriods.Count == 0)
+            if (sortedDistinctPeriods.Count == 0)
                 return;
 
             var segments = GetConsecutiveSegments(sortedDistinctPeriods);
@@ -384,6 +474,7 @@ namespace CourseList.Views
                 topBorder.BorderThickness = new Thickness(0);
                 topBorder.Opacity = targetOpacity;
                 topBorder.IsHitTestVisible = isActive;
+                topBorder.CanDrag = isActive;
                 Grid.SetRowSpan(topBorder, spanLen);
 
                 topBorder.Child = new StackPanel
@@ -478,6 +569,7 @@ namespace CourseList.Views
             border.Visibility = Visibility.Visible;
             border.Opacity = 1.0;
             border.IsHitTestVisible = true;
+            border.CanDrag = false;
             Grid.SetRowSpan(border, 1);
 
             if (border.RenderTransform is ScaleTransform s)
@@ -489,19 +581,502 @@ namespace CourseList.Views
 
         private void ClearCourseCells(Course course)
         {
-            foreach (var period in course.ClassPeriods)
+            foreach (var kv in _courseCellMap.ToList())
             {
-                int dayOffset = (int)course.DayOfWeek - 1;
-                if (dayOffset < 0) dayOffset = 6;
+                if (kv.Value == course)
+                    _courseCellMap.Remove(kv.Key);
+            }
 
-                var key = (dayOffset + 1, period);
-                if (_cellMap.TryGetValue(key, out var border) && border != null)
+            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrides);
+            if (effPeriods.Count == 0)
+                return;
+
+            int dayOffset = (int)effDay - 1;
+            if (dayOffset < 0) dayOffset = 6;
+            int dayCol = dayOffset + 1;
+
+            var sorted = effPeriods.Where(p => p >= 1 && p <= _periodCount).Distinct().OrderBy(p => p).ToList();
+            foreach (var (start, end) in GetConsecutiveSegments(sorted))
+            {
+                for (int p = start; p <= end; p++)
                 {
-                    _courseCellMap.Remove(border);
-                    ResetBorderToEmpty(border);
+                    if (_cellMap.TryGetValue((dayCol, p), out var border) && border != null)
+                        ResetBorderToEmpty(border);
                 }
             }
         }
+
+        private void ScheduleCell_DragStarting(UIElement sender, DragStartingEventArgs e)
+        {
+            if (sender is not Border border || !_courseCellMap.TryGetValue(border, out var course))
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            int start = Grid.GetRow(border);
+            int span = Math.Max(1, Grid.GetRowSpan(border));
+            int end = start + span - 1;
+            e.Data.Properties[DragPayloadKey] = $"{course.Id}|{start}|{end}|{span}";
+            e.Data.RequestedOperation = DataPackageOperation.Move;
+
+            _dragSourceBorder = border;
+            _dragSourceOpacity = border.Opacity;
+            if (border.RenderTransform is ScaleTransform st)
+            {
+                _dragSourceScaleX = st.ScaleX;
+                _dragSourceScaleY = st.ScaleY;
+            }
+
+            _dragRowSmoothFr = double.NaN;
+            AnimateDragSourceLift(border, lifting: true);
+        }
+
+        private void ScheduleCell_DropCompleted(UIElement sender, DropCompletedEventArgs e)
+        {
+            if (sender is Border b && ReferenceEquals(b, _dragSourceBorder))
+            {
+                AnimateDragSourceLift(b, lifting: false);
+                _dragSourceBorder = null;
+            }
+
+            ResetDragRowSmoothFr();
+            ClearScheduleDragPreview();
+        }
+
+        private void ResetDragRowSmoothFr() => _dragRowSmoothFr = double.NaN;
+
+        private void BlendDragRowSmoothFr(double frRaw)
+        {
+            if (double.IsNaN(_dragRowSmoothFr))
+                _dragRowSmoothFr = frRaw;
+            else
+                _dragRowSmoothFr = _dragRowSmoothFr * (1.0 - DragRowSmoothBlend) + frRaw * DragRowSmoothBlend;
+        }
+
+        private double GetFrForPlacement(double frRaw, bool isDragOver)
+        {
+            if (isDragOver)
+            {
+                BlendDragRowSmoothFr(frRaw);
+                return _dragRowSmoothFr;
+            }
+
+            if (!double.IsNaN(_dragRowSmoothFr))
+                return _dragRowSmoothFr * 0.55 + frRaw * 0.45;
+            return frRaw;
+        }
+
+        private void AnimateDragSourceLift(Border border, bool lifting)
+        {
+            try
+            {
+                var storyboard = new Storyboard();
+                var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                var dur = TimeSpan.FromMilliseconds(lifting ? 160 : 220);
+
+                double toOp = lifting ? Math.Min(1, _dragSourceOpacity * 0.48) : _dragSourceOpacity;
+                var opAnim = new DoubleAnimation
+                {
+                    From = border.Opacity,
+                    To = toOp,
+                    Duration = dur,
+                    EasingFunction = ease
+                };
+                Storyboard.SetTarget(opAnim, border);
+                Storyboard.SetTargetProperty(opAnim, "Opacity");
+                storyboard.Children.Add(opAnim);
+
+                if (border.RenderTransform is ScaleTransform st)
+                {
+                    double toSx = lifting ? 1.0 : _dragSourceScaleX;
+                    double toSy = lifting ? 1.0 : _dragSourceScaleY;
+                    var sxAnim = new DoubleAnimation
+                    {
+                        From = st.ScaleX,
+                        To = toSx,
+                        Duration = dur,
+                        EasingFunction = ease
+                    };
+                    var syAnim = new DoubleAnimation
+                    {
+                        From = st.ScaleY,
+                        To = toSy,
+                        Duration = dur,
+                        EasingFunction = ease
+                    };
+                    Storyboard.SetTarget(sxAnim, st);
+                    Storyboard.SetTargetProperty(sxAnim, "ScaleX");
+                    Storyboard.SetTarget(syAnim, st);
+                    Storyboard.SetTargetProperty(syAnim, "ScaleY");
+                    storyboard.Children.Add(sxAnim);
+                    storyboard.Children.Add(syAnim);
+                }
+
+                storyboard.Begin();
+            }
+            catch
+            {
+                border.Opacity = lifting ? Math.Min(1, _dragSourceOpacity * 0.48) : _dragSourceOpacity;
+                if (border.RenderTransform is ScaleTransform st)
+                {
+                    st.ScaleX = lifting ? 1.0 : _dragSourceScaleX;
+                    st.ScaleY = lifting ? 1.0 : _dragSourceScaleY;
+                }
+            }
+        }
+
+        private void ScheduleCell_DragOverForward(object sender, DragEventArgs e) =>
+            ScheduleGrid_DragOver(ScheduleGrid, e);
+
+        private void ScheduleCell_DropForward(object sender, DragEventArgs e) =>
+            ScheduleGrid_Drop(ScheduleGrid, e);
+
+        private void ScheduleGrid_DragOver(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            if (e.DataView?.Properties == null || !e.DataView.Properties.ContainsKey(DragPayloadKey))
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+                ClearScheduleDragPreview();
+                return;
+            }
+
+            e.AcceptedOperation = DataPackageOperation.Move;
+
+            if (!TryParseDragPayload(e, out _, out _, out _, out int span))
+            {
+                ClearScheduleDragPreview();
+                return;
+            }
+
+            var pos = e.GetPosition(ScheduleGrid);
+            if (!TryResolveDropPlacement(pos, span, out int dayCol, out int startRow, isDragOver: true))
+            {
+                ClearScheduleDragPreview();
+                return;
+            }
+
+            UpdateScheduleDragPreview(dayCol, startRow, span);
+        }
+
+        private void ScheduleGrid_DragLeave(object sender, DragEventArgs e)
+        {
+            ResetDragRowSmoothFr();
+            ClearScheduleDragPreview();
+        }
+
+        private async void ScheduleGrid_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            ClearScheduleDragPreview();
+
+            if (e.DataView?.Properties == null ||
+                !TryParseDragPayload(e, out int courseId, out int segStart, out int segEnd, out int span))
+            {
+                ResetDragRowSmoothFr();
+                return;
+            }
+
+            var pos = e.GetPosition(ScheduleGrid);
+            if (!TryResolveDropPlacement(pos, span, out int targetCol, out int targetRow, isDragOver: false))
+            {
+                ResetDragRowSmoothFr();
+                return;
+            }
+
+            ResetDragRowSmoothFr();
+            await ProcessScheduleDropAsync(courseId, segStart, segEnd, targetCol, targetRow);
+        }
+
+        private static bool TryParseDragPayload(DragEventArgs e, out int courseId, out int segStart, out int segEnd, out int span)
+        {
+            courseId = segStart = segEnd = span = 0;
+            if (e.DataView?.Properties == null ||
+                !e.DataView.Properties.TryGetValue(DragPayloadKey, out var raw) ||
+                raw is not string payload)
+                return false;
+
+            var parts = payload.Split('|');
+            if (parts.Length >= 4 &&
+                int.TryParse(parts[0], out courseId) &&
+                int.TryParse(parts[1], out segStart) &&
+                int.TryParse(parts[2], out segEnd) &&
+                int.TryParse(parts[3], out span))
+                return true;
+
+            if (parts.Length == 3 &&
+                int.TryParse(parts[0], out courseId) &&
+                int.TryParse(parts[1], out segStart) &&
+                int.TryParse(parts[2], out segEnd))
+            {
+                span = Math.Max(1, segEnd - segStart + 1);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 解析落点：连续行坐标 fr（1=第1节格顶，每节+1）下，整块中心与指针对齐：
+        /// start = round(fr - (span-1)/2)。不再使用格内三分区，避免在 2/3 节缝隙附近虚线框在 1-2、2-3、3-4 间乱跳。
+        /// </summary>
+        private bool TryResolveDropPlacement(Point positionInScheduleGrid, int span, out int dayCol, out int startRow, bool isDragOver)
+        {
+            dayCol = 1;
+            startRow = 1;
+            span = Math.Max(1, span);
+
+            if (!TryResolveDayColumn(positionInScheduleGrid.X, out dayCol))
+                return false;
+
+            double frRaw = ComputeFrRawFromPoint(positionInScheduleGrid);
+            if (double.IsNaN(frRaw))
+                return false;
+
+            double fr = GetFrForPlacement(frRaw, isDragOver);
+            startRow = ResolveStartRowFromFr(fr, span);
+
+            int maxStart = _periodCount - span + 1;
+            if (maxStart < 1)
+                return false;
+            startRow = Math.Clamp(startRow, 1, maxStart);
+            return true;
+        }
+
+        private bool TryResolveDayColumn(double x, out int dayCol)
+        {
+            dayCol = 1;
+            if (ScheduleGrid.ColumnDefinitions.Count < 2)
+                return false;
+
+            double col0W = ScheduleGrid.ColumnDefinitions[0].ActualWidth;
+            if (x < col0W || double.IsNaN(col0W) || col0W < 1)
+                return false;
+
+            int dc = _scheduleWeekRange == 7 ? 7 : 5;
+            double accX = col0W;
+            dayCol = -1;
+            for (int c = 1; c <= dc; c++)
+            {
+                double cw = ScheduleGrid.ColumnDefinitions[c].ActualWidth;
+                if (cw < 1)
+                    cw = 1;
+                if (x < accX + cw)
+                {
+                    dayCol = c;
+                    break;
+                }
+
+                accX += cw;
+            }
+
+            return dayCol >= 1;
+        }
+
+        /// <summary>
+        /// 指针 Y 映射到连续「节次刻度」fr：1 为第1节行顶，fr=3.5 约在第3、4节之间。
+        /// </summary>
+        private double ComputeFrRawFromPoint(Point positionInScheduleGrid)
+        {
+            double y = positionInScheduleGrid.Y;
+            if (ScheduleGrid.RowDefinitions.Count < 2)
+                return double.NaN;
+
+            double headerH = ScheduleGrid.RowDefinitions[0].ActualHeight;
+            if (y < headerH || double.IsNaN(headerH))
+                return double.NaN;
+
+            double ry = y - headerH;
+            double rowH = ScheduleGrid.RowDefinitions[1].ActualHeight;
+            if (rowH < 8)
+                rowH = 90;
+
+            double fr = 1.0 + ry / rowH;
+            return Math.Clamp(fr, 1.0, _periodCount + 1.0 - 1e-6);
+        }
+
+        private int ResolveStartRowFromFr(double fr, int span)
+        {
+            span = Math.Max(1, span);
+            double startDouble = fr - (span - 1) / 2.0;
+            return (int)Math.Round(startDouble);
+        }
+
+        private void UpdateScheduleDragPreview(int dayCol, int startRow, int span)
+        {
+            if (_scheduleDragOverlay == null || _scheduleDragPreviewRect == null)
+                return;
+
+            int dc = _scheduleWeekRange == 7 ? 7 : 5;
+            double w = _scheduleDragOverlay.ActualWidth;
+            double h = _scheduleDragOverlay.ActualHeight;
+            if (w < 8 && ScheduleGrid.ColumnDefinitions.Count > dc)
+            {
+                double total = ScheduleGrid.ActualWidth;
+                double c0 = ScheduleGrid.ColumnDefinitions[0].ActualWidth;
+                w = Math.Max(1, total - c0);
+            }
+
+            if (h < 8 && ScheduleGrid.RowDefinitions.Count > _periodCount)
+            {
+                double rowH = ScheduleGrid.RowDefinitions[1].ActualHeight;
+                if (rowH < 8)
+                    rowH = 90;
+                h = rowH * _periodCount;
+            }
+
+            if (w < 8 || h < 8)
+                return;
+
+            double cellW = w / dc;
+            double cellH = h / _periodCount;
+
+            Canvas.SetLeft(_scheduleDragPreviewRect, (dayCol - 1) * cellW + 2);
+            Canvas.SetTop(_scheduleDragPreviewRect, (startRow - 1) * cellH + 2);
+            _scheduleDragPreviewRect.Width = Math.Max(8, cellW - 4);
+            _scheduleDragPreviewRect.Height = Math.Max(8, cellH * span - 4);
+
+            _scheduleDragOverlay.Visibility = Visibility.Visible;
+            _scheduleDragPreviewRect.Visibility = Visibility.Visible;
+        }
+
+        private void ClearScheduleDragPreview()
+        {
+            if (_scheduleDragOverlay != null)
+                _scheduleDragOverlay.Visibility = Visibility.Collapsed;
+            if (_scheduleDragPreviewRect != null)
+                _scheduleDragPreviewRect.Visibility = Visibility.Collapsed;
+        }
+
+        private static DayOfWeek DayColumnToDayOfWeek(int col) => col switch
+        {
+            1 => DayOfWeek.Monday,
+            2 => DayOfWeek.Tuesday,
+            3 => DayOfWeek.Wednesday,
+            4 => DayOfWeek.Thursday,
+            5 => DayOfWeek.Friday,
+            6 => DayOfWeek.Saturday,
+            7 => DayOfWeek.Sunday,
+            _ => DayOfWeek.Monday
+        };
+
+        private static bool SegmentMatchesEffective(int segStart, int segEnd, List<int> effPeriods)
+        {
+            var sorted = effPeriods.Where(p => p >= 1).Distinct().OrderBy(p => p).ToList();
+            var segments = GetConsecutiveSegments(sorted);
+            return segments.Any(s => s.Item1 == segStart && s.Item2 == segEnd);
+        }
+
+        private static Course CloneCourseForConflict(Course c, DayOfWeek dow, List<int> periods) => new()
+        {
+            Id = c.Id,
+            Name = c.Name,
+            FromWeek = c.FromWeek,
+            ToWeek = c.ToWeek,
+            WeekType = c.WeekType,
+            DayOfWeek = dow,
+            ClassPeriods = periods.ToList()
+        };
+
+        private async Task ProcessScheduleDropAsync(int courseId, int segStart, int segEnd, int targetCol, int targetRow)
+        {
+            if (targetCol < 1 || targetRow < 1)
+                return;
+
+            var course = _courses.Find(c => c.Id == courseId);
+            if (course == null)
+                return;
+
+            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrides);
+            if (!SegmentMatchesEffective(segStart, segEnd, effPeriods))
+                return;
+
+            var targetDow = DayColumnToDayOfWeek(targetCol);
+            bool sameWeekday = targetDow == effDay;
+            var newPeriods = ScheduleEffectiveHelper.TryMoveSegment(
+                effPeriods, segStart, segEnd, targetRow, _periodCount, sameWeekday);
+            if (newPeriods == null)
+            {
+                ShowToast("无法移动到该位置（跨天多段课请使用编辑功能，或目标节次越界/重叠）");
+                return;
+            }
+
+            var remaining = effPeriods.Where(p => p < segStart || p > segEnd).ToList();
+            DayOfWeek newDow = remaining.Count > 0 ? effDay : targetDow;
+
+            var effSorted = effPeriods.Distinct().OrderBy(p => p).ToList();
+            if (newPeriods.SequenceEqual(effSorted) && newDow == effDay)
+                return;
+
+            var dialog = new ContentDialog
+            {
+                Title = "确认调课",
+                Content = $"将「{course.Name}」调整为：{DayName(newDow)} 第 {string.Join("、", newPeriods)} 节。\n\n请选择生效范围：",
+                PrimaryButtonText = $"仅第 {_displayWeek} 周",
+                SecondaryButtonText = "全局",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = this.XamlRoot
+            };
+
+            var result = await ContentDialogGuard.ShowAsync(dialog);
+            if (result != ContentDialogResult.Primary && result != ContentDialogResult.Secondary)
+                return;
+
+            if (result == ContentDialogResult.Primary)
+            {
+                var temp = CloneCourseForConflict(course, newDow, newPeriods);
+                var conflict = CourseConflictHelper.FindConflictCourseForWeek(
+                    _courses, temp, _displayWeek, _semesterTotalWeeks, course.Id, _weekOverrides);
+                if (conflict != null)
+                {
+                    await ShowConflictDialogAsync(temp, conflict);
+                    return;
+                }
+
+                WeekScheduleOverrideHelper.Upsert(_weekOverrides, new WeekScheduleOverride
+                {
+                    CourseId = course.Id,
+                    WeekIndex = _displayWeek,
+                    DayOfWeek = newDow,
+                    ClassPeriods = newPeriods
+                });
+                await WeekScheduleOverrideHelper.SaveAsync(_weekOverrides);
+                BuildScheduleGrid();
+                return;
+            }
+
+            if (result == ContentDialogResult.Secondary)
+            {
+                var temp = CloneCourseForConflict(course, newDow, newPeriods);
+                var conflict = CourseConflictHelper.FindConflictCourse(_courses, temp, excludeCourseId: course.Id);
+                if (conflict != null)
+                {
+                    await ShowConflictDialogAsync(temp, conflict);
+                    return;
+                }
+
+                _weekOverrides.RemoveAll(o => o.CourseId == course.Id && o.WeekIndex == _displayWeek);
+                await WeekScheduleOverrideHelper.SaveAsync(_weekOverrides);
+                course.DayOfWeek = newDow;
+                course.ClassPeriods = newPeriods;
+                await CourseDataHelper.SaveCoursesAsync(_courses);
+                BuildScheduleGrid();
+            }
+        }
+
+        private static string DayName(DayOfWeek d) => d switch
+        {
+            DayOfWeek.Monday => "周一",
+            DayOfWeek.Tuesday => "周二",
+            DayOfWeek.Wednesday => "周三",
+            DayOfWeek.Thursday => "周四",
+            DayOfWeek.Friday => "周五",
+            DayOfWeek.Saturday => "周六",
+            DayOfWeek.Sunday => "周日",
+            _ => ""
+        };
 
         private void CourseCell_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
         {
@@ -657,6 +1232,8 @@ namespace CourseList.Views
                 return;
 
             ClearCourseCells(target);
+            WeekScheduleOverrideHelper.RemoveAllForCourse(_weekOverrides, courseId);
+            await WeekScheduleOverrideHelper.SaveAsync(_weekOverrides);
             _courses.RemoveAll(c => c.Id == courseId);
             await CourseDataHelper.SaveCoursesAsync(_courses);
             BuildScheduleGrid();
@@ -908,38 +1485,14 @@ namespace CourseList.Views
             return null;
         }
 
-        private static DateTime NormalizeToMonday(DateTime date)
-        {
-            var d = date.Date;
-            int diff = ((int)d.DayOfWeek + 6) % 7; // Monday=0
-            return d.AddDays(-diff).Date;
-        }
+        private static DateTime NormalizeToMonday(DateTime date) =>
+            SemesterWeekHelper.NormalizeToMonday(date);
 
-        private int GetWeekIndexByDate(DateTime date)
-        {
-            var d = date.Date;
-            int days = (int)(d - _semesterStartMonday.Date).TotalDays;
-            return days >= 0 ? (days / 7) + 1 : 1;
-        }
+        private int GetWeekIndexByDate(DateTime date) =>
+            SemesterWeekHelper.GetWeekIndexByDate(date, _semesterStartMonday);
 
-        private bool IsCourseActiveInWeek(Course course, int week)
-        {
-            int fromWeek = course.FromWeek <= 0 ? 1 : course.FromWeek;
-            int toWeek = course.ToWeek <= 0 ? _semesterTotalWeeks : course.ToWeek;
-            if (fromWeek > toWeek)
-                (fromWeek, toWeek) = (toWeek, fromWeek);
-
-            bool inRange = week >= fromWeek && week <= toWeek;
-            if (!inRange)
-                return false;
-
-            return course.WeekType switch
-            {
-                1 => week % 2 == 1,
-                2 => week % 2 == 0,
-                _ => true
-            };
-        }
+        private bool IsCourseActiveInWeek(Course course, int week) =>
+            SemesterWeekHelper.IsCourseActiveInWeek(course, week, _semesterTotalWeeks);
 
         private void UpdateWeekNavigationUi()
         {

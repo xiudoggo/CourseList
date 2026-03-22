@@ -1,12 +1,28 @@
 using CourseList.Models;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace CourseList.Helpers
 {
+    /// <summary>
+    /// 教务 WebView2 会话：用户数据目录、默认/上次访问 URL。
+    /// </summary>
+    public static class ImportSessionStore
+    {
+        private static readonly string _webViewUserDataFolder =
+            Path.Combine(PathHelper.BaseFolder, ".webview2", "jwxt");
+
+        public static string WebViewUserDataFolder => _webViewUserDataFolder;
+
+        public static Uri DefaultUrl { get; } = new Uri("https://jw.jnu.edu.cn/new/index.html");
+
+        public static Uri? LastVisitedUrl { get; set; }
+    }
+
     public sealed class CourseImportParseResult
     {
         public bool Success { get; set; }
@@ -47,6 +63,9 @@ namespace CourseList.Helpers
         public HashSet<int> Periods { get; set; } = new();
     }
 
+    /// <summary>
+    /// 从教务页面脚本执行结果解析为 <see cref="Course"/> 列表。
+    /// </summary>
     public static class CourseImportParser
     {
         public static CourseImportParseResult ParseFromExecuteScriptResult(string executeScriptRawResult, int totalWeeks)
@@ -273,12 +292,10 @@ namespace CourseList.Helpers
             if (!TryParseHexColor(hex, out var r, out var g, out var b))
                 return "#808080";
 
-            // Schedule cards use white text, target at least WCAG AA normal-text contrast.
             const double minContrastWithWhite = 4.5;
             if (ContrastRatioWithWhite(r, g, b) >= minContrastWithWhite)
                 return $"#{r:X2}{g:X2}{b:X2}";
 
-            // Darken step-by-step while keeping hue relationship.
             for (int i = 0; i < 12; i++)
             {
                 r = (int)Math.Round(r * 0.88);

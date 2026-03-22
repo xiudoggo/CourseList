@@ -8,6 +8,56 @@ namespace CourseList.Helpers
     public static class CourseConflictHelper
     {
         /// <summary>
+        /// 在指定学期周次下，按「有效课表」（含周覆盖）检测 candidate 是否与某门课冲突。
+        /// candidate 应为假设排课后的临时对象（DayOfWeek + ClassPeriods）。
+        /// </summary>
+        public static Course? FindConflictCourseForWeek(
+            IEnumerable<Course> existingCourses,
+            Course candidate,
+            int weekIndex,
+            int semesterTotalWeeks,
+            int? excludeCourseId,
+            IReadOnlyList<WeekScheduleOverride>? overrides)
+        {
+            if (existingCourses == null)
+                return null;
+
+            overrides ??= Array.Empty<WeekScheduleOverride>();
+
+            foreach (var existing in existingCourses)
+            {
+                if (excludeCourseId.HasValue && existing.Id == excludeCourseId.Value)
+                    continue;
+
+                var (existingDay, existingPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(existing, weekIndex, overrides);
+                if (existingDay != candidate.DayOfWeek)
+                    continue;
+
+                int existingFrom = existing.FromWeek <= 0 ? 1 : existing.FromWeek;
+                int existingTo = existing.ToWeek <= 0 ? int.MaxValue : existing.ToWeek;
+                int newFrom = candidate.FromWeek <= 0 ? 1 : candidate.FromWeek;
+                int newTo = candidate.ToWeek <= 0 ? int.MaxValue : candidate.ToWeek;
+                bool hasWeekOverlap = existingFrom <= newTo && newFrom <= existingTo;
+                if (!hasWeekOverlap)
+                    continue;
+
+                if (existing.WeekType != 0 && candidate.WeekType != 0 && existing.WeekType != candidate.WeekType)
+                    continue;
+
+                if (!SemesterWeekHelper.IsCourseActiveInWeek(existing, weekIndex, semesterTotalWeeks))
+                    continue;
+
+                foreach (var p in candidate.ClassPeriods ?? Enumerable.Empty<int>())
+                {
+                    if (existingPeriods.Contains(p))
+                        return existing;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// 查找与 newCourse 在“时间上”冲突的课程（返回第一门冲突课程，不返回则为 null）。
         /// 冲突规则与原 SchedulePage / CourseListPage 保持一致：
         /// - 同一天（DayOfWeek 相同）

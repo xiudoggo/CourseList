@@ -2,7 +2,7 @@
   "Theme": "Light",
   "MinimizeToTrayOnClose": false,
   "ClosePromptEnabled": false,
-  "CurrentSchemeId": "c393cba725c14d47a2671beac9bf74bc",
+  "CurrentSchemeId": "445e37b5dfd741399a0120a897361ab4",
   "Schemes": [
     {
       "Id": "1f00a2ccbf7e4323838cf24d19a98c0f",
@@ -13,8 +13,8 @@
       "Name": "1"
     },
     {
-      "Id": "c393cba725c14d47a2671beac9bf74bc",
-      "Name": "导入方案1"
+      "Id": "445e37b5dfd741399a0120a897361ab4",
+      "Name": "大三下学期"
     }
   ]
 }

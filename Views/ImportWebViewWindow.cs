@@ -139,7 +139,7 @@ namespace CourseList.Views
             }
             catch (Exception ex)
             {
-                SystemNotificationHelper.Show("教务导入", $"WebView2 初始化失败：{ex.Message}");
+                SystemNotificationHelper.ShowSilent("教务导入", $"WebView2 初始化失败：{ex.Message}");
             }
         }
 
@@ -261,7 +261,7 @@ namespace CourseList.Views
                     var currentId = SchemeHelper.GetCurrentSchemeId();
                     await CourseDataHelper.SaveCoursesImmediateAsync(parse.Courses, currentId);
                     SchemeHelper.SetCurrentSchemeId(currentId);
-                    SystemNotificationHelper.Show("教务导入", $"导入成功：已覆盖当前方案，共 {parse.Courses.Count} 门课。");
+                    SystemNotificationHelper.ShowSilent("教务导入", $"导入成功：已覆盖当前方案，共 {parse.Courses.Count} 门课。");
                     Close();
                 }
                 else
@@ -277,7 +277,7 @@ namespace CourseList.Views
                     SchemeHelper.SetCurrentSchemeId(newId);
                     await CourseDataHelper.SaveCoursesImmediateAsync(parse.Courses, newId);
                     SchemeHelper.SetCurrentSchemeId(newId);
-                    SystemNotificationHelper.Show("教务导入", $"导入成功：已创建「{newSchemeName}」，共 {parse.Courses.Count} 门课。");
+                    SystemNotificationHelper.ShowSilent("教务导入", $"导入成功：已创建「{newSchemeName}」，共 {parse.Courses.Count} 门课。");
                     Close();
                 }
             }

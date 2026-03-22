@@ -199,7 +199,7 @@ namespace CourseList.Views
             ConfirmPeriodChangesButton.IsEnabled = false;
             _isInitializing = false;
             UpdateSchemeButtonsState();
-            SystemNotificationHelper.Show("课表方案", $"已切换到「{si.Name}」");
+            SystemNotificationHelper.ShowSilent("课表方案", $"已切换到「{si.Name}」");
         }
 
         private async void AddSchemeBtn_Click(object sender, RoutedEventArgs e)
@@ -266,7 +266,7 @@ namespace CourseList.Views
                 ConfirmPeriodChangesButton.IsEnabled = false;
                 _isInitializing = false;
                 RefreshSchemeComboBox();
-                SystemNotificationHelper.Show("课表方案", $"已创建「{name}」");
+                SystemNotificationHelper.ShowSilent("课表方案", $"已创建「{name}」");
             }
         }
 
@@ -383,7 +383,7 @@ namespace CourseList.Views
             if (SchemeHelper.DeleteScheme(targetId))
             {
                 RefreshSchemeComboBox();
-                SystemNotificationHelper.Show("课表方案", $"已删除「{targetScheme.Name}」");
+                SystemNotificationHelper.ShowSilent("课表方案", $"已删除「{targetScheme.Name}」");
             }
         }
 

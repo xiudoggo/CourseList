@@ -312,6 +312,14 @@ namespace CourseList.Helpers
         }
 
         /// <summary>
+        /// 按周调课覆盖（week-overrides.json）
+        /// </summary>
+        public static string GetSchemeWeekOverridesPath(string schemeId)
+        {
+            return Path.Combine(GetSchemeFolder(schemeId), "week-overrides.json");
+        }
+
+        /// <summary>
         /// 新建方案。copyFromId 不为空时从该方案复制配置与课程
         /// </summary>
         /// <returns>新方案 ID，失败返回 null</returns>
@@ -329,12 +337,16 @@ namespace CourseList.Helpers
             {
                 var srcConfig = GetSchemeConfigPath(copyFromId);
                 var srcCourses = GetSchemeCoursesPath(copyFromId);
+                var srcOverrides = GetSchemeWeekOverridesPath(copyFromId);
                 var dstConfig = GetSchemeConfigPath(newId);
                 var dstCourses = GetSchemeCoursesPath(newId);
+                var dstOverrides = GetSchemeWeekOverridesPath(newId);
                 if (File.Exists(srcConfig))
                     File.Copy(srcConfig, dstConfig);
                 if (File.Exists(srcCourses))
                     File.Copy(srcCourses, dstCourses);
+                if (File.Exists(srcOverrides))
+                    File.Copy(srcOverrides, dstOverrides);
             }
             else
             {

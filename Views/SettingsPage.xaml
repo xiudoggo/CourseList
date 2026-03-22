@@ -110,7 +110,7 @@
 
                     <TextBlock Text="课程节次时间设置" Style="{StaticResource SettingsSectionLabelStyle}"/>
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  Height="260"
+                                  Height="200"
                                   Width="240"
                                   Padding="0"
                                   HorizontalAlignment="Left">

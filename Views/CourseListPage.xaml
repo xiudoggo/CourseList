@@ -150,18 +150,22 @@
             </StackPanel>
         </Grid>
 
-        <!-- 课程列表 -->
-        <muxc:ItemsRepeater Grid.Row="1" 
-                            x:Name="CourseRepeater"
-                            ItemTemplate="{StaticResource CourseCardTemplate}">
-            <muxc:ItemsRepeater.Layout>
-                <!-- 增大单项高度和行间距，避免卡片垂直重叠并完整显示备注 -->
-                <muxc:UniformGridLayout MinItemWidth="260"
-                                        MinItemHeight="170"
-                                        MinRowSpacing="12"
-                                        MinColumnSpacing="12"/>
-            </muxc:ItemsRepeater.Layout>
-        </muxc:ItemsRepeater>
+        <!-- 课程列表：必须包在 ScrollViewer 内，否则超出可视区域会被裁剪且无滚动条 -->
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      HorizontalContentAlignment="Stretch">
+            <muxc:ItemsRepeater x:Name="CourseRepeater"
+                                ItemTemplate="{StaticResource CourseCardTemplate}">
+                <muxc:ItemsRepeater.Layout>
+                    <!-- 增大单项高度和行间距，避免卡片垂直重叠并完整显示备注 -->
+                    <muxc:UniformGridLayout MinItemWidth="260"
+                                            MinItemHeight="170"
+                                            MinRowSpacing="12"
+                                            MinColumnSpacing="12"/>
+                </muxc:ItemsRepeater.Layout>
+            </muxc:ItemsRepeater>
+        </ScrollViewer>
 
         <!-- 空状态提示 -->
         <TextBlock x:Name="EmptyText" 
