@@ -39,6 +39,20 @@ namespace CourseList.Views
         private int _semesterTotalWeeks = 20;
         private int _displayWeek = 1;
 
+        private bool _isCompactMode;
+        private bool _isPageLoaded;
+
+        // 竖版“小窗”渲染时的单元格映射：day=1..N(周一到周日/工作日)，period=1.._periodCount
+        private readonly Dictionary<(int day, int period), Border> _compactCellMap = new();
+        private readonly Dictionary<int, TextBlock> _compactDayHeaderDateTextByCol = new();
+        private const double CompactTimeColumnWidth = 46;
+        private const double CompactPeriodRowHeight = 56;
+
+        // Compact mode adaptive sizing (only affects the compact container).
+        private double _compactTimeColumnWidth = CompactTimeColumnWidth;
+        private double _compactDayColumnWidth = 78;
+        private double _lastCompactSizingWidth = double.NaN;
+
         private List<WeekScheduleOverride> _weekOverrides = new();
         private const string DragPayloadKey = "CourseListScheduleDrag";
 
@@ -53,6 +67,10 @@ namespace CourseList.Views
         private double _dragRowSmoothFr = double.NaN;
         private const double DragRowSmoothBlend = 0.26;
 
+        private readonly Dictionary<Border, Border> _selectionOverlayMap = new();
+        private Border? _selectedCourseBorder;
+        private const string CourseScaleStoryboardKey = "CourseScaleStoryboard";
+
         public SchedulePage()
         {
             this.InitializeComponent();
@@ -61,6 +79,10 @@ namespace CourseList.Views
 
             // 初始化时隐藏操作面板
             ExpandedPanel.Visibility = Visibility.Collapsed;
+
+            // 小窗模式：随着窗口宽度变化需要重新分配紧凑容器列宽，确保周六/周日仍可完整显示。
+            if (CompactScheduleContainer != null)
+                CompactScheduleContainer.SizeChanged += CompactScheduleContainer_SizeChanged;
         }
 
         private void SchedulePage_Unloaded(object sender, RoutedEventArgs e)
@@ -86,11 +108,17 @@ namespace CourseList.Views
                 RebuildScheduleLayout();
                 BuildScheduleGrid();
                 UpdateWeekNavigationUi();
+
+            // 切换页面首次进入时，Compact 容器尺寸可能还没测量出来，
+            // 导致自适应宽度不生效。这里做一次延迟重试，确保周六/周日列完整。
+            if (_isCompactMode)
+                TryApplyCompactAdaptiveSizingAndRebuild(3);
             });
         }
 
         private async void SchedulePage_Loaded(object sender, RoutedEventArgs e)
         {
+            _isPageLoaded = true;
             var config = ConfigHelper.LoadConfig();
             _scheduleWeekRange = config.ScheduleWeekRange == 5 ? 5 : 7;
             _periodCount = config.PeriodCount;
@@ -110,7 +138,169 @@ namespace CourseList.Views
             BuildScheduleGrid();
             UpdateWeekNavigationUi();
 
+            // 进入课程表页时（从其它页面切过来）Compact 容器的 ActualWidth 可能还没稳定，
+            // 导致列宽计算偏差从而渲染错位。这里做一次延迟自适应重建兜底。
+            if (_isCompactMode)
+                TryApplyCompactAdaptiveSizingAndRebuild(5);
+
             WireScheduleGridDragSurface();
+        }
+
+        public void ApplyCompactMode(bool isCompact)
+        {
+            if (_isCompactMode == isCompact)
+                return;
+
+            _isCompactMode = isCompact;
+
+            // 无论页面是否 Loaded，都先切换可见性，避免出现 compact 容器渲染不出来/残留桌面布局的情况。
+            if (DesktopScheduleBorder != null)
+                DesktopScheduleBorder.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+            if (CompactScheduleContainer != null)
+                CompactScheduleContainer.Visibility = isCompact ? Visibility.Visible : Visibility.Collapsed;
+
+            // 小窗：不需要周次切换按钮/显示，也不需要展开操作栏。
+            if (BottomControlsGrid != null)
+                BottomControlsGrid.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+
+            // 顶层兜底：即便 BottomControlsGrid 在某些场景未生效，也隐藏与周次/展开相关的控件
+            var weekNavVisibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+            if (PrevWeekBtn != null) PrevWeekBtn.Visibility = weekNavVisibility;
+            if (NextWeekBtn != null) NextWeekBtn.Visibility = weekNavVisibility;
+            if (GoToCurrentWeekBtn != null) GoToCurrentWeekBtn.Visibility = weekNavVisibility;
+            if (CurrentWeekText != null) CurrentWeekText.Visibility = weekNavVisibility;
+            if (NotCurrentWeekHint != null) NotCurrentWeekHint.Visibility = weekNavVisibility;
+            if (ExpandedPanel != null) ExpandedPanel.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+
+            // 大窗：保留最小宽度；小窗：放开最小宽度（compact 使用另一套容器，但恢复桌面时要正确）。
+            if (ScheduleGrid?.ColumnDefinitions != null && ScheduleGrid.ColumnDefinitions.Count >= 2)
+            {
+                for (int i = 1; i < ScheduleGrid.ColumnDefinitions.Count; i++)
+                {
+                    ScheduleGrid.ColumnDefinitions[i].MinWidth = isCompact ? 0 : DayColumnMinWidth;
+                }
+            }
+
+            if (!_isPageLoaded)
+                return;
+
+            if (isCompact)
+            {
+                // 切入 compact 时先做一次自适应 sizing，保证周六/周日列能完整创建/显示。
+                bool ok = ApplyCompactAdaptiveSizing();
+                if (!ok)
+                {
+                    DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+                    {
+                        if (_isCompactMode)
+                        {
+                            ApplyCompactAdaptiveSizing();
+                            BuildScheduleGrid();
+                        }
+                    });
+                    return;
+                }
+            }
+
+            BuildScheduleGrid();
+        }
+
+        private void CompactScheduleContainer_SizeChanged(object sender, Microsoft.UI.Xaml.SizeChangedEventArgs e)
+        {
+            if (!_isCompactMode || !_isPageLoaded)
+                return;
+
+            double w = e.NewSize.Width;
+            if (!double.IsNaN(_lastCompactSizingWidth) && Math.Abs(w - _lastCompactSizingWidth) < 6)
+                return;
+
+            _lastCompactSizingWidth = w;
+
+            // SizeChanged 频繁触发，做一次宽度变化后的延迟重建，避免抖动/卡顿。
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (_isCompactMode)
+                {
+                    if (ApplyCompactAdaptiveSizing())
+                        BuildScheduleGrid();
+                }
+            });
+        }
+
+        private bool ApplyCompactAdaptiveSizing()
+        {
+            // 尝试用实际可视宽度计算紧凑容器的时间列/日列宽度。
+            double viewportW = 0;
+
+            if (CompactScrollViewer != null && CompactScrollViewer.ActualWidth > 0)
+                viewportW = CompactScrollViewer.ActualWidth;
+            else if (CompactScheduleContainer != null && CompactScheduleContainer.ActualWidth > 0)
+                viewportW = CompactScheduleContainer.ActualWidth;
+
+            if (viewportW <= 0)
+                return false;
+
+            bool showWeekend = _scheduleWeekRange == 7;
+            int dayColumnCount = showWeekend ? 7 : 5;
+
+            // 给出可伸缩但不过度占用的时间列宽度：当宽度足够时让日列也能被拉伸。
+            // 同时留出一段余量给左侧“月份+第X周”的显示，避免挤压触发错位。
+            double timeW = Math.Max(40, viewportW * 0.14);
+            timeW = Math.Min(timeW, viewportW * 0.22);
+
+            double paddingL = CompactDaysPanel?.Padding.Left ?? 0;
+            double paddingR = CompactDaysPanel?.Padding.Right ?? 0;
+            // 紧凑模式下我们希望“只留边界缝隙，不要列间缝隙”，Spacing 在 XAML 已设为 0。
+            double spacingW = 0;
+
+            // CompactLayoutGrid 右侧列宽是 (viewportW - timeW)，在其中再扣掉左右 padding。
+            // 给一个小余量避免四舍五入导致的“差几个像素”溢出触发横向滚动。
+            viewportW = Math.Max(0, viewportW - 2);
+            double availableForDays = viewportW - timeW - paddingL - paddingR - spacingW;
+            if (availableForDays <= 0)
+                return false;
+
+            double dayW = availableForDays / dayColumnCount;
+            // 去掉上限，确保宽度足够时可以拉伸；只保留下限避免极端缩小时文字不可读。
+            dayW = Math.Max(42, dayW);
+
+            // 像素取整，避免 UI 四舍五入造成的 1~2px 溢出触发横向滚动。
+            timeW = Math.Floor(timeW);
+            dayW = Math.Floor(dayW);
+
+            _compactTimeColumnWidth = timeW;
+            _compactDayColumnWidth = dayW;
+
+            // 同步更新 compact 布局的第一列宽度（时间轴列）。
+            if (CompactLayoutGrid?.ColumnDefinitions != null && CompactLayoutGrid.ColumnDefinitions.Count >= 2)
+            {
+                CompactLayoutGrid.ColumnDefinitions[0].Width = new GridLength(_compactTimeColumnWidth, GridUnitType.Pixel);
+            }
+
+            // Spacing 固定为 XAML 的 0：只保留边界缝隙（通过内部 Border Margin）。
+
+            return true;
+        }
+
+        private void TryApplyCompactAdaptiveSizingAndRebuild(int attemptsLeft)
+        {
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (!_isCompactMode || !_isPageLoaded)
+                    return;
+
+                bool ok = ApplyCompactAdaptiveSizing();
+                if (ok)
+                {
+                    BuildScheduleGrid();
+                    return;
+                }
+
+                if (attemptsLeft > 1)
+                {
+                    TryApplyCompactAdaptiveSizingAndRebuild(attemptsLeft - 1);
+                }
+            });
         }
 
         private void WireScheduleGridDragSurface()
@@ -133,6 +323,14 @@ namespace CourseList.Views
 
         private void BuildScheduleGrid()
         {
+            if (_isCompactMode)
+                BuildCompactScheduleGrid();
+            else
+                BuildDesktopScheduleGrid();
+        }
+
+        private void BuildDesktopScheduleGrid()
+        {
             EnsureScheduleGridInitialized();
             ClearAllCourseCells();
             UpdateHeaderDates();
@@ -145,6 +343,409 @@ namespace CourseList.Views
 
             BringScheduleDragOverlayToTop();
             UpdateWeekNavigationUi();
+        }
+
+        private void BuildCompactScheduleGrid()
+        {
+            EnsureCompactScheduleInitialized();
+            ClearAllCourseCellsCompact();
+            UpdateCompactTimeAxis();
+            UpdateCompactHeaderDates();
+
+            foreach (var course in _courses)
+            {
+                ApplyCourseToCompactCells(course);
+            }
+
+            UpdateWeekNavigationUi();
+        }
+
+        private void EnsureCompactScheduleInitialized()
+        {
+            // 每次切换周次/模式时重建紧凑布局，避免旧尺寸/映射残留。
+            CompactTimePanel.Children.Clear();
+            CompactDaysPanel.Children.Clear();
+            _compactCellMap.Clear();
+            _compactDayHeaderDateTextByCol.Clear();
+
+            // 计算显示天数
+            bool showWeekend = _scheduleWeekRange == 7;
+            int dayColumnCount = showWeekend ? 7 : 5; // col=1..N
+
+            // 创建按天列（每列底部是 period grid）
+            for (int dayCol = 1; dayCol <= dayColumnCount; dayCol++)
+            {
+                var columnRoot = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    Width = _compactDayColumnWidth
+                };
+
+                // Day header
+                var header = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Spacing = 2
+                };
+
+                header.Children.Add(new TextBlock
+                {
+                    Text = dayCol switch
+                    {
+                        1 => "周一",
+                        2 => "周二",
+                        3 => "周三",
+                        4 => "周四",
+                        5 => "周五",
+                        6 => "周六",
+                        7 => "周日",
+                        _ => ""
+                    },
+                    FontWeight = FontWeights.SemiBold,
+                    FontSize = 14,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                });
+
+                var dateText = new TextBlock
+                {
+                    Text = "",
+                    FontSize = 12,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                header.Children.Add(dateText);
+                _compactDayHeaderDateTextByCol[dayCol] = dateText;
+
+                columnRoot.Children.Add(header);
+
+                // period grid
+                var dayGrid = new Grid
+                {
+                    RowSpacing = 0,
+                    ColumnSpacing = 0,
+                    Margin = new Thickness(0, 6, 0, 0)
+                };
+
+                for (int r = 0; r < _periodCount; r++)
+                    dayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(CompactPeriodRowHeight) });
+
+                for (int period = 1; period <= _periodCount; period++)
+                {
+                    var border = new Border
+                    {
+                        CornerRadius = new CornerRadius(6),
+                        // 只保留左右边界缝隙，不做列间明显留白
+                        Margin = new Thickness(1, 0, 1, 0),
+                        Background = new SolidColorBrush(Colors.Transparent),
+                        BorderBrush = null,
+                        BorderThickness = new Thickness(0),
+                        Opacity = 1.0,
+                        Visibility = Visibility.Visible,
+                        IsHitTestVisible = true,
+                        RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
+                        RenderTransform = new ScaleTransform { ScaleX = 0.95, ScaleY = 0.95 }
+                    };
+
+                    border.PointerPressed += CourseCell_PointerPressed;
+                    border.DoubleTapped += CourseCell_DoubleTapped;
+                    border.CanDrag = false;
+
+                    Grid.SetRow(border, period - 1);
+                    dayGrid.Children.Add(border);
+                    _compactCellMap[(dayCol, period)] = border;
+                }
+
+                columnRoot.Children.Add(dayGrid);
+                CompactDaysPanel.Children.Add(columnRoot);
+            }
+        }
+
+        private void ClearAllCourseCellsCompact()
+        {
+            _courseCellMap.Clear();
+            _selectionOverlayMap.Clear();
+            _selectedCourseBorder = null;
+            SelectedCourse = null;
+
+            foreach (var kv in _compactCellMap)
+            {
+                var border = kv.Value;
+                if (border == null)
+                    continue;
+
+                border.Background = new SolidColorBrush(Colors.Transparent);
+                border.Child = null;
+                border.BorderBrush = null;
+                border.BorderThickness = new Thickness(0);
+                border.Visibility = Visibility.Visible;
+                border.Opacity = 1.0;
+                border.IsHitTestVisible = true;
+                border.CanDrag = false;
+                border.RenderTransform = new ScaleTransform { ScaleX = 0.95, ScaleY = 0.95 };
+                Grid.SetRowSpan(border, 1);
+            }
+        }
+
+        private void UpdateCompactTimeAxis()
+        {
+            CompactTimePanel.Children.Clear();
+
+            // 顶部标题占位：与右侧每一天表头两行（周X + 日期）高度对齐，
+            // 这样第一节“节次”就不会和课程格错位。
+            var header = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 2,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+
+            header.Children.Add(new TextBlock
+            {
+                Text = $"第{_displayWeek}周",
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.None,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top
+            });
+
+            header.Children.Add(new TextBlock
+            {
+                Text = $"{DateTime.Now.Month}月",
+                FontSize = 12,
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.None,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top
+            });
+
+            CompactTimePanel.Children.Add(header);
+
+            // 每个 period 对应右侧 dayGrid 的一行：必须严格 1:1 对齐（不额外加 Margin）。
+            const double periodFontSize = 12;
+            double timeFontSize = Math.Max(9, periodFontSize - 1);
+
+            for (int period = 1; period <= _periodCount; period++)
+            {
+                string startText = string.Empty;
+                string endText = string.Empty;
+
+                if (_periodTimeRanges.Count >= period)
+                {
+                    var ptr = _periodTimeRanges[period - 1];
+                    if (ptr.StartTime.HasValue)
+                        startText = ptr.StartTime.Value.ToString("HH\\:mm");
+                    if (ptr.EndTime.HasValue)
+                        endText = ptr.EndTime.Value.ToString("HH\\:mm");
+                    else if (string.IsNullOrWhiteSpace(endText) && ptr.StartTime.HasValue)
+                        endText = ptr.StartTime.Value.ToString("HH\\:mm");
+                }
+
+                var cell = new Grid
+                {
+                    Width = _compactTimeColumnWidth,
+                    Height = CompactPeriodRowHeight,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Top
+                };
+
+                // 三行紧凑显示：用内层 StackPanel 来做“整体垂直居中”，Spacing=0 去掉行间空隙
+                var inner = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    Spacing = 0,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Top
+                };
+
+                inner.Children.Add(new TextBlock
+                {
+                    Text = $"{period}",
+                    FontSize = periodFontSize,
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.NoWrap,
+                    TextTrimming = TextTrimming.None,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+
+                inner.Children.Add(new TextBlock
+                {
+                    Text = startText,
+                    FontSize = timeFontSize,
+                    TextWrapping = TextWrapping.NoWrap,
+                    TextTrimming = TextTrimming.None,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+
+                inner.Children.Add(new TextBlock
+                {
+                    Text = endText,
+                    FontSize = timeFontSize,
+                    TextWrapping = TextWrapping.NoWrap,
+                    TextTrimming = TextTrimming.None,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+
+                cell.Children.Add(inner);
+
+                CompactTimePanel.Children.Add(cell);
+            }
+        }
+
+        private void UpdateCompactHeaderDates()
+        {
+            var weekMonday = _semesterStartMonday.AddDays((_displayWeek - 1) * 7);
+
+            foreach (var kv in _compactDayHeaderDateTextByCol)
+            {
+                int dayCol = kv.Key;
+                int dayOffset = dayCol - 1; // 0=Mon
+                var date = weekMonday.AddDays(dayOffset);
+                kv.Value.Text = $"{date:M/d}";
+            }
+        }
+
+        private void ApplyCourseToCompactCells(Course course)
+        {
+            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrides);
+
+            // 5天模式：跳过周六/周日课程
+            if (_scheduleWeekRange == 5 &&
+                (effDay == DayOfWeek.Saturday || effDay == DayOfWeek.Sunday))
+            {
+                return;
+            }
+
+            int dayOffset = (int)effDay - 1; // Monday=1 -> index 0
+            if (dayOffset < 0) dayOffset = 6; // Sunday=7 -> index 6
+            int dayCol = dayOffset + 1;
+
+            // 生成连续段：例如 [1,2,3,5] => (1..3), (5..5)
+            var sortedDistinctPeriods = effPeriods
+                .Where(p => p >= 1 && p <= _periodCount)
+                .Distinct()
+                .OrderBy(p => p)
+                .ToList();
+
+            if (sortedDistinctPeriods.Count == 0)
+                return;
+
+            var segments = GetConsecutiveSegments(sortedDistinctPeriods);
+            var courseColor = new SolidColorBrush(ColorHelperFromHex(course.Color));
+            bool isActive = IsCourseActiveInWeek(course, _displayWeek);
+            double targetOpacity = isActive ? 1.0 : 0.35;
+
+            foreach (var (startPeriod, endPeriod) in segments)
+            {
+                if (!_compactCellMap.TryGetValue((dayCol, startPeriod), out var topBorder) || topBorder == null)
+                    continue;
+
+                int spanLen = endPeriod - startPeriod + 1;
+
+                topBorder.Visibility = Visibility.Visible;
+                topBorder.Background = courseColor;
+                topBorder.BorderBrush = null;
+                topBorder.BorderThickness = new Thickness(0);
+                topBorder.Opacity = targetOpacity;
+                topBorder.IsHitTestVisible = isActive;
+                topBorder.CanDrag = false;
+                Grid.SetRowSpan(topBorder, spanLen);
+
+                var sp = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    Spacing = 2,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Width = Math.Max(44, _compactDayColumnWidth - 10),
+                    Margin = new Thickness(4, 3, 4, 3)
+                };
+
+                sp.Children.Add(new TextBlock
+                {
+                    Text = course.Name,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    FontSize = 13,
+                    FontWeight = FontWeights.SemiBold
+                });
+
+                sp.Children.Add(new TextBlock
+                {
+                    Text = course.Teacher,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    FontSize = 11
+                });
+
+                sp.Children.Add(new TextBlock
+                {
+                    Text = course.Classroom,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    FontSize = 11
+                });
+
+                if (!isActive)
+                {
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = "（非本周）",
+                        TextWrapping = TextWrapping.NoWrap,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Foreground = new SolidColorBrush(Colors.White),
+                        FontSize = 10,
+                        FontWeight = FontWeights.SemiBold
+                    });
+                }
+
+                var root = new Grid();
+                root.Children.Add(sp);
+
+                var selectionOverlay = new Border
+                {
+                    IsHitTestVisible = false,
+                    CornerRadius = topBorder.CornerRadius,
+                    BorderThickness = new Thickness(2),
+                    BorderBrush = new SolidColorBrush(Colors.Transparent),
+                    Opacity = 0,
+                    Margin = new Thickness(-2)
+                };
+                root.Children.Add(selectionOverlay);
+                _selectionOverlayMap[topBorder] = selectionOverlay;
+
+                topBorder.Child = root;
+
+                if (isActive)
+                {
+                    _courseCellMap[topBorder] = course;
+                }
+
+                // 折叠掉连续段中后续的每节 Border
+                for (int p = startPeriod + 1; p <= endPeriod; p++)
+                {
+                    if (!_compactCellMap.TryGetValue((dayCol, p), out var border) || border == null)
+                        continue;
+
+                    border.Visibility = Visibility.Collapsed;
+                    border.Background = new SolidColorBrush(Colors.Transparent);
+                    border.Child = null;
+                    border.BorderBrush = null;
+                    border.BorderThickness = new Thickness(0);
+                    border.Opacity = 1.0;
+                    border.IsHitTestVisible = false;
+                    Grid.SetRowSpan(border, 1);
+                }
+            }
         }
 
         private void ApplyWeekRangeVisibility()
@@ -380,6 +981,8 @@ namespace CourseList.Views
         private void ClearAllCourseCells()
         {
             _courseCellMap.Clear();
+            _selectionOverlayMap.Clear();
+            _selectedCourseBorder = null;
 
             foreach (var border in _cellMap.Values)
             {
@@ -477,7 +1080,8 @@ namespace CourseList.Views
                 topBorder.CanDrag = isActive;
                 Grid.SetRowSpan(topBorder, spanLen);
 
-                topBorder.Child = new StackPanel
+                var root = new Grid();
+                var sp = new StackPanel
                 {
                     Orientation = Orientation.Vertical,
                     Width = CourseContentWidth,
@@ -486,52 +1090,65 @@ namespace CourseList.Views
                     Spacing = 2
                 };
 
-                if (topBorder.Child is StackPanel sp)
+                sp.Children.Add(new TextBlock
+                {
+                    Text = course.Name,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    FontSize = 16,
+                    FontWeight = FontWeights.SemiBold
+                });
+
+                sp.Children.Add(new TextBlock
+                {
+                    Text = course.Teacher,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    FontSize = 14
+                });
+
+                sp.Children.Add(new TextBlock
+                {
+                    Text = course.Classroom,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = new SolidColorBrush(Colors.White),
+                    FontSize = 14
+                });
+
+                if (!isActive)
                 {
                     sp.Children.Add(new TextBlock
                     {
-                        Text = course.Name,
-                        TextWrapping = TextWrapping.Wrap,
-                        TextAlignment = TextAlignment.Center,
+                        Text = "（非本周）",
+                        TextWrapping = TextWrapping.NoWrap,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         Foreground = new SolidColorBrush(Colors.White),
-                        FontSize = 16,
+                        FontSize = 12,
                         FontWeight = FontWeights.SemiBold
                     });
-
-                    sp.Children.Add(new TextBlock
-                    {
-                        Text = course.Teacher,
-                        TextWrapping = TextWrapping.Wrap,
-                        TextAlignment = TextAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Foreground = new SolidColorBrush(Colors.White),
-                        FontSize = 14
-                    });
-
-                    sp.Children.Add(new TextBlock
-                    {
-                        Text = course.Classroom,
-                        TextWrapping = TextWrapping.Wrap,
-                        TextAlignment = TextAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Foreground = new SolidColorBrush(Colors.White),
-                        FontSize = 14
-                    });
-
-                    if (!isActive)
-                    {
-                        sp.Children.Add(new TextBlock
-                        {
-                            Text = "（非本周）",
-                            TextWrapping = TextWrapping.NoWrap,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            Foreground = new SolidColorBrush(Colors.White),
-                            FontSize = 12,
-                            FontWeight = FontWeights.SemiBold
-                        });
-                    }
                 }
+
+                root.Children.Add(sp);
+
+                var selectionOverlay = new Border
+                {
+                    IsHitTestVisible = false,
+                    CornerRadius = topBorder.CornerRadius,
+                    BorderThickness = new Thickness(2),
+                    BorderBrush = new SolidColorBrush(Colors.Transparent),
+                    Opacity = 0,
+                    Margin = new Thickness(-2)
+                };
+                root.Children.Add(selectionOverlay);
+                _selectionOverlayMap[topBorder] = selectionOverlay;
+
+                topBorder.Child = root;
 
                 if (isActive)
                 {
@@ -553,6 +1170,7 @@ namespace CourseList.Views
                     border.Opacity = 1.0;
                     border.IsHitTestVisible = false;
                     Grid.SetRowSpan(border, 1);
+                    _selectionOverlayMap.Remove(border);
                 }
             }
         }
@@ -571,6 +1189,9 @@ namespace CourseList.Views
             border.IsHitTestVisible = true;
             border.CanDrag = false;
             Grid.SetRowSpan(border, 1);
+            _selectionOverlayMap.Remove(border);
+            if (ReferenceEquals(_selectedCourseBorder, border))
+                _selectedCourseBorder = null;
 
             if (border.RenderTransform is ScaleTransform s)
             {
@@ -1119,6 +1740,26 @@ namespace CourseList.Views
             }
         }
 
+        private static Color GetSelectionBorderColorFromCourse(Color courseColor)
+        {
+            // 让描边随课程色变化，同时保证在深/浅色上都足够可见：按亮度做轻微提亮/压暗。
+            double r = courseColor.R / 255.0;
+            double g = courseColor.G / 255.0;
+            double b = courseColor.B / 255.0;
+            double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+            double t = luminance < 0.55 ? 0.35 : -0.35; // 暗色提亮，亮色压暗
+            byte adj(byte c)
+            {
+                double v = c / 255.0;
+                double outV = t >= 0 ? (v + (1 - v) * t) : (v * (1 + t));
+                outV = Math.Clamp(outV, 0, 1);
+                return (byte)Math.Round(outV * 255);
+            }
+
+            return Color.FromArgb(220, adj(courseColor.R), adj(courseColor.G), adj(courseColor.B));
+        }
+
         #region 课程操作
 
         /// <summary>
@@ -1374,19 +2015,17 @@ namespace CourseList.Views
             // 先清除之前的选中状态
             ClearCourseSelection();
 
-            // 设置新的选中状态：略放大，并使用与背景有对比但不刺眼的描边（带动画放大）
+            // 设置新的选中状态：只做渲染层缩放与外描边，不改变布局测量
             SelectedCourse = course;
-            AnimateCourseScale(border, 1.05, 150);
+            _selectedCourseBorder = border;
+            AnimateCourseScale(border, 1.05, 260);
 
-            // 使用系统强调色做半透明描边，兼容浅色/深色
-            Color accentColor = Colors.Gray;
-            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accentObj) &&
-                accentObj is Color accent)
+            if (_selectionOverlayMap.TryGetValue(border, out var overlay))
             {
-                accentColor = accent;
+                var courseColor = ColorHelperFromHex(course.Color);
+                overlay.BorderBrush = new SolidColorBrush(GetSelectionBorderColorFromCourse(courseColor));
+                overlay.Opacity = 1.0;
             }
-            border.BorderBrush = new SolidColorBrush(Color.FromArgb(180, accentColor.R, accentColor.G, accentColor.B));
-            border.BorderThickness = new Thickness(2);
         }
 
         /// <summary>
@@ -1395,6 +2034,7 @@ namespace CourseList.Views
         private void ClearCourseSelection()
         {
             SelectedCourse = null;
+            _selectedCourseBorder = null;
 
             if (_courseCellMap != null)
             {
@@ -1402,9 +2042,15 @@ namespace CourseList.Views
                 {
                     if (cell.Key != null)
                     {
-                        AnimateCourseScale(cell.Key, 0.95, 120);
-                        cell.Key.BorderThickness = new Thickness(0);
-                        cell.Key.BorderBrush = null;
+                        AnimateCourseScale(cell.Key, 0.95, 180);
+                        if (_selectionOverlayMap.TryGetValue(cell.Key, out var overlay))
+                        {
+                            overlay.Opacity = 0.0;
+                            if (overlay.BorderBrush is SolidColorBrush b)
+                                b.Color = Colors.Transparent;
+                            else
+                                overlay.BorderBrush = new SolidColorBrush(Colors.Transparent);
+                        }
                     }
                 }
             }
@@ -1425,28 +2071,90 @@ namespace CourseList.Views
                 border.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
             }
 
+            if (border.Resources.TryGetValue(CourseScaleStoryboardKey, out var existing) &&
+                existing is Storyboard existingStoryboard)
+            {
+                try { existingStoryboard.Stop(); } catch { }
+            }
+
             var storyboard = new Storyboard();
 
-            var animX = new DoubleAnimation
-            {
-                To = targetScale,
-                Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            Storyboard.SetTarget(animX, scaleTransform);
-            Storyboard.SetTargetProperty(animX, "ScaleX");
+            double fromX = scaleTransform.ScaleX;
+            double fromY = scaleTransform.ScaleY;
 
-            var animY = new DoubleAnimation
+            if (targetScale > Math.Max(fromX, fromY) + 0.0001)
             {
-                To = targetScale,
-                Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            Storyboard.SetTarget(animY, scaleTransform);
-            Storyboard.SetTargetProperty(animY, "ScaleY");
+                double overshoot = Math.Max(targetScale, 1.05) + 0.03;
+                var kx = new DoubleAnimationUsingKeyFrames();
+                kx.KeyFrames.Add(new EasingDoubleKeyFrame
+                {
+                    Value = fromX,
+                    KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(0))
+                });
+                kx.KeyFrames.Add(new EasingDoubleKeyFrame
+                {
+                    Value = overshoot,
+                    KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(Math.Max(60, durationMs * 0.55))),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+                kx.KeyFrames.Add(new EasingDoubleKeyFrame
+                {
+                    Value = targetScale,
+                    KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(durationMs)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+                });
+                Storyboard.SetTarget(kx, scaleTransform);
+                Storyboard.SetTargetProperty(kx, "ScaleX");
 
-            storyboard.Children.Add(animX);
-            storyboard.Children.Add(animY);
+                var ky = new DoubleAnimationUsingKeyFrames();
+                ky.KeyFrames.Add(new EasingDoubleKeyFrame
+                {
+                    Value = fromY,
+                    KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(0))
+                });
+                ky.KeyFrames.Add(new EasingDoubleKeyFrame
+                {
+                    Value = overshoot,
+                    KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(Math.Max(60, durationMs * 0.55))),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+                ky.KeyFrames.Add(new EasingDoubleKeyFrame
+                {
+                    Value = targetScale,
+                    KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(durationMs)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+                });
+                Storyboard.SetTarget(ky, scaleTransform);
+                Storyboard.SetTargetProperty(ky, "ScaleY");
+
+                storyboard.Children.Add(kx);
+                storyboard.Children.Add(ky);
+            }
+            else
+            {
+                var animX = new DoubleAnimation
+                {
+                    To = targetScale,
+                    Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                Storyboard.SetTarget(animX, scaleTransform);
+                Storyboard.SetTargetProperty(animX, "ScaleX");
+
+                var animY = new DoubleAnimation
+                {
+                    To = targetScale,
+                    Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                Storyboard.SetTarget(animY, scaleTransform);
+                Storyboard.SetTargetProperty(animY, "ScaleY");
+
+                storyboard.Children.Add(animX);
+                storyboard.Children.Add(animY);
+            }
+
+            border.Resources[CourseScaleStoryboardKey] = storyboard;
             storyboard.Begin();
         }
 
@@ -1467,6 +2175,21 @@ namespace CourseList.Views
             }
 
             // 点击在空白区域或非课程元素上，清除选中
+            ClearCourseSelection();
+        }
+
+        /// <summary>
+        /// 小窗竖版：点击空白区域取消选中（逻辑与桌面一致）。
+        /// </summary>
+        private void ScheduleCompact_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.OriginalSource is DependencyObject source)
+            {
+                var border = FindParentCourseBorder(source);
+                if (border != null && _courseCellMap.ContainsKey(border))
+                    return;
+            }
+
             ClearCourseSelection();
         }
 

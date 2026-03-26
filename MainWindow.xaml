@@ -20,13 +20,28 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 自定义标题栏 -->
+        <!-- 自定义标题栏（必须放在外层行中，保证拖动/非客户区命中行为正常） -->
         <TitleBar x:Name="AppTitleBar"
-                  Title="📘 我的课程管理系统" FontWeight="Bold">
-        </TitleBar>
+                  Grid.Row="0"
+                  Title="📘 我的课程管理系统"
+                  FontWeight="Bold"/>
+
+        <!-- 小窗模式：用于打开/关闭侧边栏覆盖层 -->
+        <Button x:Name="CompactNavButton"
+                Grid.Row="0"
+                Content="≡"
+                Width="32"
+                Height="32"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Margin="0,0,120,0"
+                Visibility="Collapsed"
+                Click="CompactNavButton_Click" />
 
         <!-- 应用内容位于第二行 -->
-        <Frame x:Name="RootFrame" Grid.Row="1" SourcePageType="views:MainPage" />
+        <Frame x:Name="RootFrame"
+               Grid.Row="1"
+               SourcePageType="views:MainPage" />
         
 
     </Grid>

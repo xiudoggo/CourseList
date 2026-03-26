@@ -1,6 +1,7 @@
 using CourseList.Helpers;
 using CourseList.Models;
 using Microsoft.UI;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls;
 using System;
@@ -27,6 +28,8 @@ namespace CourseList.Views
     public sealed partial class HomePage : Page
     {
         private readonly ObservableCollection<TodayCourseCardItem> _todayCourseCards = new();
+        private Thickness _desktopPadding = new Thickness(20);
+        private double _desktopRightMaxWidth = 340;
 
         public HomePage()
         {
@@ -45,6 +48,39 @@ namespace CourseList.Views
         private void HomePage_Unloaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             SchemeHelper.SchemeChanged -= OnSchemeChanged;
+        }
+
+        public void ApplyCompactMode(bool isCompact)
+        {
+            if (HomeMainGrid == null || HomeLeftStackPanel == null || HomeRightStackPanel == null)
+                return;
+
+            if (isCompact)
+            {
+                HomeMainGrid.Padding = new Thickness(12);
+
+                // 竖屏：将“欢迎/今日概览”和“今日课程卡片”上下堆叠
+                Grid.SetRow(HomeLeftStackPanel, 0);
+                Grid.SetColumn(HomeLeftStackPanel, 0);
+
+                Grid.SetRow(HomeRightStackPanel, 1);
+                Grid.SetColumn(HomeRightStackPanel, 0);
+
+                HomeRightStackPanel.MaxWidth = 9999;
+            }
+            else
+            {
+                HomeMainGrid.Padding = _desktopPadding;
+
+                // 桌面：两列并排
+                Grid.SetRow(HomeLeftStackPanel, 0);
+                Grid.SetColumn(HomeLeftStackPanel, 0);
+
+                Grid.SetRow(HomeRightStackPanel, 0);
+                Grid.SetColumn(HomeRightStackPanel, 1);
+
+                HomeRightStackPanel.MaxWidth = _desktopRightMaxWidth;
+            }
         }
 
         private void OnSchemeChanged(object? sender, EventArgs e)

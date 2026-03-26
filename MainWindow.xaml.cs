@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Runtime.InteropServices;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
 using CourseList.Views;
@@ -34,6 +35,47 @@ namespace CourseList
     {
         private const uint TrayCallbackMessage = 0x8001; // WM_APP + 1
 
+        private const double CompactWidthThreshold = 600;
+        private bool _isCompactMode;
+        private const double MinWindowWidth = 450;
+
+        private const int WM_NCLBUTTONDBLCLK = 0x00A3;
+        private const int HTCAPTION = 0x0002;
+        private const int GWLP_WNDPROC = -4;
+        private const int WM_GETMINMAXINFO = 0x0024;
+
+        private IntPtr _hwnd;
+        private IntPtr _oldWndProcPtr;
+        private WndProcDelegate? _wndProcDelegate;
+
+        private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MINMAXINFO
+        {
+            public POINT ptReserved;
+            public POINT ptMaxSize;
+            public POINT ptMaxPosition;
+            public POINT ptMinTrackSize;
+            public POINT ptMaxTrackSize;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetDpiForWindow(IntPtr hWnd);
+
         private Win32TrayIcon? _trayIcon;
         private AppWindow? _appWindow;
 
@@ -49,10 +91,19 @@ namespace CourseList
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
 
+            this.SizeChanged += MainWindow_SizeChanged;
+
             // When enabled, "closing" will hide window to system tray instead of exiting.
             this.Closed += MainWindow_Closed;
 
             var hwnd = WindowNative.GetWindowHandle(this);
+            _hwnd = hwnd;
+
+            // Hook WM_NCLBUTTONDBLCLK to prevent compact-mode caption double-click maximizing.
+            // This avoids rapid clicking the title-bar adjacent button being interpreted as a caption double-click.
+            _wndProcDelegate = WndProcHook;
+            _oldWndProcPtr = SetWindowLongPtr(_hwnd, GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
+
             var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(windowId);
             _appWindow.Closing += AppWindow_Closing;
@@ -72,6 +123,78 @@ namespace CourseList
                 onExitRequested: ExitFromTray);
 
             UpdateTrayCloseBehavior(minimizeToTray);
+
+            // Apply initial compact mode state once the window has its first size.
+            // (SizeChanged will also keep it in sync afterwards.)
+            UpdateCompactMode(this.Bounds.Width);
+        }
+
+        private IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            try
+            {
+                if (msg == WM_GETMINMAXINFO)
+                {
+                    // 通过 Win32 获取最小拖拽尺寸，防止窗口缩到过窄后“回闪到最小宽度”。
+                    // 该方式不做 Move/Resize，不干预后续放大/缩小手感。
+                    var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+                    // Win32 的 ptMinTrackSize 使用“像素”，而 WinUI 的宽度/阈值是 “view pixel(DIP)”。
+                    // 在高 DPI 下 DIP->像素换算必须使用 Win32 DPI（不能用 DisplayInformation，因为 WndProc 非 CoreWindow 线程）。
+                    uint dpi = GetDpiForWindow(hWnd);
+                    if (dpi == 0) dpi = 96; // fallback
+                    double pixelPerDip = dpi / 96.0;
+                    mmi.ptMinTrackSize.X = (int)Math.Round(MinWindowWidth * pixelPerDip);
+                    Marshal.StructureToPtr(mmi, lParam, true);
+                }
+
+                if (_isCompactMode && msg == WM_NCLBUTTONDBLCLK)
+                {
+                    // Only block caption double-clicks.
+                    if (wParam.ToInt32() == HTCAPTION)
+                        return IntPtr.Zero;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return CallWindowProc(_oldWndProcPtr, hWnd, msg, wParam, lParam);
+        }
+
+        private void MainWindow_SizeChanged(object sender, WindowSizeChangedEventArgs e)
+        {
+            UpdateCompactMode(e.Size.Width);
+        }
+
+        private void UpdateCompactMode(double width)
+        {
+            bool compact = width > 0 && width <= CompactWidthThreshold;
+            if (compact == _isCompactMode)
+            {
+                // Still ensure the toggle button visibility matches the current mode.
+                CompactNavButton.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+                return;
+            }
+
+            _isCompactMode = compact;
+            CompactNavButton.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+
+            if (RootFrame?.Content is MainPage mp)
+            {
+                mp.ApplyCompactMode(compact);
+            }
+        }
+
+        private void CompactNavButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!(_isCompactMode))
+                return;
+
+            if (RootFrame?.Content is MainPage mp)
+            {
+                mp.TogglePaneFromTitleBar();
+            }
         }
 
         private void NavigateToHomePage()

@@ -35,7 +35,7 @@
             <Style x:Key="CourseCellStyle" TargetType="Border">
                 <Setter Property="BorderBrush" Value="Transparent"/>
                 <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Padding" Value="4"/>
+                <Setter Property="Padding" Value="0"/>
                 <Setter Property="Background" Value="Transparent"/>
             </Style>
         </ResourceDictionary>
@@ -53,15 +53,16 @@
         </Grid.RowDefinitions>
 
         <!-- 课程表 Grid：外层包一层圆角背景 -->
-        <Border Grid.Row="0"
-                Margin="10"
+        <Border x:Name="DesktopScheduleBorder"
+                Grid.Row="0"
+                Margin="0"
                 CornerRadius="16"
                 Background="{ThemeResource ScheduleBackgroundBrush}">
             <ScrollViewer x:Name="ScheduleScrollViewer"
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Auto">
                 <Grid x:Name="ScheduleGrid"
-                      Margin="8"
+                      Margin="0"
                       Background="Transparent"
                       PointerPressed="ScheduleGrid_PointerPressed">
                 <!-- 列定义 -->
@@ -133,7 +134,44 @@
             </ScrollViewer>
         </Border>
 
-        <Grid Grid.Row="1" Margin="20,0,20,20">
+        <!-- 小窗竖版：手机风格时间轴 + 每天纵向课卡片 -->
+        <Grid x:Name="CompactScheduleContainer"
+              Grid.Row="0"
+              Visibility="Collapsed">
+            <Border CornerRadius="16"
+                    Background="{ThemeResource ScheduleBackgroundBrush}">
+                <ScrollViewer x:Name="CompactScrollViewer"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto"
+                              PointerPressed="ScheduleCompact_PointerPressed">
+                    <Grid x:Name="CompactLayoutGrid">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="46"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 左侧时间轴 -->
+                        <StackPanel x:Name="CompactTimePanel"
+                                    Grid.Column="0"
+                                    Spacing="0"
+                                    Padding="6,6,0,6"/>
+
+                        <!-- 右侧按天列：允许横向滑动 -->
+                        <ScrollViewer x:Name="CompactDaysHorizontalScroll"
+                                      Grid.Column="1"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="CompactDaysPanel"
+                                        Orientation="Horizontal"
+                                        Spacing="0"
+                                        Padding="4,6,4,6"/>
+                        </ScrollViewer>
+                    </Grid>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="BottomControlsGrid" Grid.Row="1" Margin="20,0,20,20">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>

@@ -26,6 +26,10 @@ namespace CourseList.Views
         private bool _isInitializing = true;
         private bool _periodTimeDirty = false;
 
+        private Thickness _desktopOuterMargin = new Thickness(20);
+        private Thickness _desktopOuterPadding = new Thickness(20);
+        private GridLength _desktopLeftColumnWidth = new GridLength(260);
+
         public SettingsPage()
         {
             this.InitializeComponent();
@@ -96,6 +100,51 @@ namespace CourseList.Views
             finally
             {
                 _isInitializing = false;
+            }
+        }
+
+        public void ApplyCompactMode(bool isCompact)
+        {
+            if (SettingsOuterBorder == null || SettingsMainGrid == null || SettingsLeftPanel == null || SettingsRightPanel == null)
+                return;
+
+            if (isCompact)
+            {
+                SettingsOuterBorder.Margin = new Thickness(12);
+                SettingsOuterBorder.Padding = new Thickness(12);
+
+                // 竖屏 compact：左/右两段竖直排列（系统设置在上，课程表功能在下）
+                SettingsLeftPanel.Visibility = Visibility.Visible;
+
+                if (SettingsMainGrid.ColumnDefinitions.Count >= 2)
+                {
+                    SettingsMainGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+                    SettingsMainGrid.ColumnDefinitions[1].Width = new GridLength(0);
+                }
+
+                Grid.SetColumn(SettingsLeftPanel, 0);
+                Grid.SetRow(SettingsLeftPanel, 0);
+
+                Grid.SetColumn(SettingsRightPanel, 0);
+                Grid.SetRow(SettingsRightPanel, 1);
+            }
+            else
+            {
+                SettingsOuterBorder.Margin = _desktopOuterMargin;
+                SettingsOuterBorder.Padding = _desktopOuterPadding;
+
+                SettingsLeftPanel.Visibility = Visibility.Visible;
+                if (SettingsMainGrid.ColumnDefinitions.Count >= 1)
+                    SettingsMainGrid.ColumnDefinitions[0].Width = _desktopLeftColumnWidth;
+
+                if (SettingsMainGrid.ColumnDefinitions.Count >= 2)
+                    SettingsMainGrid.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
+
+                Grid.SetColumn(SettingsLeftPanel, 0);
+                Grid.SetRow(SettingsLeftPanel, 0);
+
+                Grid.SetColumn(SettingsRightPanel, 1);
+                Grid.SetRow(SettingsRightPanel, 0);
             }
         }
 

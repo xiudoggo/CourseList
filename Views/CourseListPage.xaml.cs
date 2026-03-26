@@ -17,6 +17,9 @@ namespace CourseList.Views
         private List<Course> _courses = new List<Course>();
         private Course? _selectedCourse;
         private Border? _selectedCardBorder;
+        private Thickness _desktopMargin = new Thickness(20);
+        private Orientation _desktopFiltersOrientation = Orientation.Horizontal;
+        private double _desktopSearchWidth = 260;
 
         private string _searchText = string.Empty;
         private DayOfWeek? _dayFilter;
@@ -34,6 +37,71 @@ namespace CourseList.Views
 
             Loaded += CourseListPage_Loaded;
             Unloaded += CourseListPage_Unloaded;
+        }
+
+        public void ApplyCompactMode(bool isCompact)
+        {
+            if (CourseListRootGrid == null || FiltersStackPanel == null)
+                return;
+
+            if (isCompact)
+            {
+                CourseListRootGrid.Margin = new Thickness(12);
+                FiltersStackPanel.Visibility = Visibility.Collapsed;
+
+                if (AddBtn != null) AddBtn.Visibility = Visibility.Collapsed;
+                if (EditBtn != null) EditBtn.Visibility = Visibility.Collapsed;
+                if (DeleteBtn != null) DeleteBtn.Visibility = Visibility.Collapsed;
+
+                if (CourseRepeater != null)
+                {
+                    // compact 下：只展示“课程长条列表”，布局改为单列竖排。
+                    CourseRepeater.Layout = new StackLayout
+                    {
+                        Orientation = Orientation.Vertical,
+                        Spacing = 12
+                    };
+
+                    if (this.Resources.TryGetValue("CourseCardCompactTemplate", out var compactTpl) &&
+                        compactTpl is DataTemplate compactDataTemplate)
+                    {
+                        CourseRepeater.ItemTemplate = compactDataTemplate;
+                    }
+                }
+            }
+            else
+            {
+                CourseListRootGrid.Margin = _desktopMargin;
+                FiltersStackPanel.Visibility = Visibility.Visible;
+                FiltersStackPanel.Orientation = _desktopFiltersOrientation;
+                FiltersStackPanel.Spacing = 12;
+
+                if (SearchBox != null) SearchBox.Width = _desktopSearchWidth;
+                if (DayFilterCombo != null) DayFilterCombo.Width = 140;
+                if (WeekTypeFilterCombo != null) WeekTypeFilterCombo.Width = 150;
+                if (PeriodFilterCombo != null) PeriodFilterCombo.Width = 140;
+
+                if (CourseRepeater != null)
+                {
+                    CourseRepeater.Layout = new UniformGridLayout
+                    {
+                        MinItemWidth = 220,
+                        MinItemHeight = 170,
+                        MinRowSpacing = 12,
+                        MinColumnSpacing = 12
+                    };
+
+                    if (this.Resources.TryGetValue("CourseCardTemplate", out var tpl) &&
+                        tpl is DataTemplate dataTemplate)
+                    {
+                        CourseRepeater.ItemTemplate = dataTemplate;
+                    }
+                }
+
+                if (AddBtn != null) AddBtn.Visibility = Visibility.Visible;
+                if (EditBtn != null) EditBtn.Visibility = Visibility.Visible;
+                if (DeleteBtn != null) DeleteBtn.Visibility = Visibility.Visible;
+            }
         }
 
         private void CourseListPage_Unloaded(object sender, RoutedEventArgs e)

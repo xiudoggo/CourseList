@@ -18,17 +18,22 @@
     </Page.Resources>
     
 
-    <Border Margin="20" CornerRadius="16" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" Padding="20">
+    <Border x:Name="SettingsOuterBorder"
+            Margin="20" CornerRadius="16" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" Padding="20">
         <!-- 外层滚动：当页面高度不足时，出现滚动条，避免按钮被挤出窗口 -->
         <ScrollViewer x:Name="SettingsScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <Grid>
+            <Grid x:Name="SettingsMainGrid">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="260"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- 左列：系统设置 -->
-                <StackPanel Grid.Column="0" HorizontalAlignment="Left">
+                <StackPanel x:Name="SettingsLeftPanel" Grid.Column="0" HorizontalAlignment="Left">
                     <TextBlock Text="系统设置" Style="{StaticResource SettingsTitleStyle}"/>
 
                     <TextBlock Text="主题设置" Style="{StaticResource SettingsSectionLabelStyle}"/>
@@ -76,7 +81,7 @@
                 </StackPanel>
 
                 <!-- 右列：课程表功能设置 -->
-                <StackPanel Grid.Column="1" HorizontalAlignment="Left">
+                <StackPanel x:Name="SettingsRightPanel" Grid.Column="1" HorizontalAlignment="Left">
                     <TextBlock Text="课程表功能设置" Style="{StaticResource SettingsTitleStyle}"/>
 
                     <TextBlock Text="设置学期起始周日期" Style="{StaticResource SettingsSectionLabelStyle}"/>

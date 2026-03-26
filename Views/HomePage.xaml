@@ -99,13 +99,22 @@
     </Page.Resources>
 
     <ScrollViewer>
-        <Grid Padding="20" ColumnSpacing="6">
+        <Grid x:Name="HomeMainGrid" Padding="20" ColumnSpacing="6">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-            <StackPanel Grid.Column="0" MinWidth="230" Spacing="16" VerticalAlignment="Top">
+            <StackPanel x:Name="HomeLeftStackPanel"
+                        Grid.Column="0"
+                        Grid.Row="0"
+                        MinWidth="230"
+                        Spacing="16"
+                        VerticalAlignment="Top">
                 <TextBlock Text="👋 欢迎回来"
                            FontSize="28"
                            FontWeight="Bold"/>
@@ -120,7 +129,9 @@
                            Opacity="0.9"/>
             </StackPanel>
 
-            <StackPanel Grid.Column="1"
+            <StackPanel x:Name="HomeRightStackPanel"
+                        Grid.Column="1"
+                        Grid.Row="0"
                         Spacing="10"
                         VerticalAlignment="Top"
                         HorizontalAlignment="Left"

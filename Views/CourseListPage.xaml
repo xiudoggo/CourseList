@@ -16,7 +16,9 @@
                     CornerRadius="16"
                     Padding="0"
                     Margin="0"
-                    Width="260"
+                    Width="Auto"
+                    MaxWidth="260"
+                    HorizontalAlignment="Stretch"
                     Height="170"
                     Tag="{x:Bind}"
                     PointerPressed="CourseCard_PointerPressed">
@@ -79,9 +81,52 @@
                 </ScrollViewer>
             </Border>
         </DataTemplate>
+
+        <!-- 小窗 compact：横向长条列表卡片（不显示筛选/操作按钮，仅展示列表） -->
+        <DataTemplate x:Key="CourseCardCompactTemplate" x:DataType="models:Course">
+            <Border x:Name="CompactRootBorder"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="16"
+                    Padding="12,10"
+                    Margin="0"
+                    Tag="{x:Bind}"
+                    HorizontalAlignment="Stretch"
+                    Height="92"
+                    PointerPressed="CourseCard_PointerPressed">
+                <Grid ColumnDefinitions="6,*"
+                      ColumnSpacing="10">
+                    <Border Grid.Column="0"
+                            CornerRadius="3"
+                            Background="{ThemeResource SystemAccentColor}" />
+                    <StackPanel Grid.Column="1"
+                                Orientation="Vertical"
+                                Spacing="6">
+                        <TextBlock Text="{x:Bind NameWrapped}"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                        <TextBlock Text="{x:Bind TeacherWrapped}"
+                                   FontSize="13"
+                                   TextWrapping="NoWrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{x:Bind ClassroomWrapped}"
+                                   FontSize="13"
+                                   TextWrapping="NoWrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="{x:Bind ScheduleDisplayWrapped}"
+                                   FontSize="13"
+                                   TextWrapping="NoWrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
     </Page.Resources>
 
-    <Grid Margin="20">
+    <Grid x:Name="CourseListRootGrid" Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -108,7 +153,7 @@
             </StackPanel>
 
             <!-- 搜索 / 筛选 -->
-            <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="12" Margin="0,10,0,0">
+            <StackPanel x:Name="FiltersStackPanel" Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="12" Margin="0,10,0,0">
                 <TextBox x:Name="SearchBox"
                          Width="260"
                          PlaceholderText="搜索：名称/教师/教室/备注"
@@ -153,13 +198,13 @@
         <!-- 课程列表：必须包在 ScrollViewer 内，否则超出可视区域会被裁剪且无滚动条 -->
         <ScrollViewer Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
+                      HorizontalScrollBarVisibility="Auto"
                       HorizontalContentAlignment="Stretch">
             <muxc:ItemsRepeater x:Name="CourseRepeater"
                                 ItemTemplate="{StaticResource CourseCardTemplate}">
                 <muxc:ItemsRepeater.Layout>
                     <!-- 增大单项高度和行间距，避免卡片垂直重叠并完整显示备注 -->
-                    <muxc:UniformGridLayout MinItemWidth="260"
+                    <muxc:UniformGridLayout MinItemWidth="220"
                                             MinItemHeight="170"
                                             MinRowSpacing="12"
                                             MinColumnSpacing="12"/>
