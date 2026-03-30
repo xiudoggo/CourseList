@@ -14,35 +14,21 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid>
+    <Grid x:Name="RootGrid">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 自定义标题栏（必须放在外层行中，保证拖动/非客户区命中行为正常） -->
+        <!-- 原生 TitleBar 控件内置侧栏键（PaneToggleRequested），与系统标题栏同一套输入路径；高度在代码中设为 Standard -->
         <TitleBar x:Name="AppTitleBar"
                   Grid.Row="0"
                   Title="📘 我的课程管理系统"
-                  FontWeight="Bold"/>
+                  IsPaneToggleButtonVisible="True"
+                  PaneToggleRequested="AppTitleBar_PaneToggleRequested" />
 
-        <!-- 小窗模式：用于打开/关闭侧边栏覆盖层 -->
-        <Button x:Name="CompactNavButton"
-                Grid.Row="0"
-                Content="≡"
-                Width="32"
-                Height="32"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Center"
-                Margin="0,0,120,0"
-                Visibility="Collapsed"
-                Click="CompactNavButton_Click" />
-
-        <!-- 应用内容位于第二行 -->
         <Frame x:Name="RootFrame"
                Grid.Row="1"
                SourcePageType="views:MainPage" />
-        
-
     </Grid>
 </Window>

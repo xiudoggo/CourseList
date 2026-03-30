@@ -5,29 +5,44 @@
     xmlns:local="using:CourseList.Views"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-        
-        <!-- 主体 NavigationView -->
-        <muxc:NavigationView x:Name="NavView"
-                             Grid.Row="1"
-                             PaneDisplayMode="Left"
-                             OpenPaneLength="200"
-                             CompactPaneLength="48"
-                             IsBackButtonVisible="Collapsed"
-                             IsSettingsVisible="False"
-                             SelectionChanged="NavView_SelectionChanged">
+    <!-- 单层布局：减少无意义 Grid 嵌套；IsTabStop 与 WinUI Gallery 一致 -->
+    <!-- 默认 Expanded≈1008 / Compact≈641，大窗过早变窄；调低阈值使更窄宽度仍保持展开侧栏（见文档 CompactModeThresholdWidth / ExpandedModeThresholdWidth） -->
+    <muxc:NavigationView x:Name="NavView"
+                         PaneDisplayMode="Auto"
+                         ExpandedModeThresholdWidth="768"
+                         CompactModeThresholdWidth="520"
+                         OpenPaneLength="280"
+                         CompactPaneLength="48"
+                         IsPaneToggleButtonVisible="False"
+                         IsBackButtonVisible="Collapsed"
+                         IsSettingsVisible="False"
+                         IsTabStop="False"
+                         DisplayModeChanged="NavView_DisplayModeChanged"
+                         SelectionChanged="NavView_SelectionChanged">
 
-            <muxc:NavigationView.MenuItems>
-                <muxc:NavigationViewItem Icon="Home" Content="首页" Tag="HomePage"/>
-                <muxc:NavigationViewItem Icon="Calendar" Content="课程表" Tag="SchedulePage"/>
-                <muxc:NavigationViewItem Icon="List" Content="课程列表" Tag="CourseListPage"/>
-                <muxc:NavigationViewItem Icon="Setting" Content="设置" Tag="SettingsPage"/>
-            </muxc:NavigationView.MenuItems>
+        <muxc:NavigationView.MenuItems>
+            <muxc:NavigationViewItem Content="首页" Tag="HomePage">
+                <muxc:NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Home"/>
+                </muxc:NavigationViewItem.Icon>
+            </muxc:NavigationViewItem>
+            <muxc:NavigationViewItem Content="课程表" Tag="SchedulePage">
+                <muxc:NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Calendar"/>
+                </muxc:NavigationViewItem.Icon>
+            </muxc:NavigationViewItem>
+            <muxc:NavigationViewItem Content="课程列表" Tag="CourseListPage">
+                <muxc:NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="List"/>
+                </muxc:NavigationViewItem.Icon>
+            </muxc:NavigationViewItem>
+            <muxc:NavigationViewItem Content="设置" Tag="SettingsPage">
+                <muxc:NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Setting"/>
+                </muxc:NavigationViewItem.Icon>
+            </muxc:NavigationViewItem>
+        </muxc:NavigationView.MenuItems>
 
-            <Frame x:Name="ContentFrame"/>
-        </muxc:NavigationView>
-    </Grid>
+        <Frame x:Name="ContentFrame"/>
+    </muxc:NavigationView>
 </Page>

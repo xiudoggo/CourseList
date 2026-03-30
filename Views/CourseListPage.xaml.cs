@@ -88,7 +88,8 @@ namespace CourseList.Views
                         MinItemWidth = 220,
                         MinItemHeight = 170,
                         MinRowSpacing = 12,
-                        MinColumnSpacing = 12
+                        MinColumnSpacing = 12,
+                        ItemsStretch = UniformGridLayoutItemsStretch.Fill
                     };
 
                     if (this.Resources.TryGetValue("CourseCardTemplate", out var tpl) &&

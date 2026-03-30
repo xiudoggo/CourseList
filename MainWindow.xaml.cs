@@ -6,8 +6,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.InteropServices;
@@ -15,7 +13,6 @@ using Windows.Foundation;
 using Windows.Foundation.Collections;
 using CourseList.Views;
 using WinRT.Interop;
-using System.Diagnostics;
 using CourseList.Helpers;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -35,8 +32,6 @@ namespace CourseList
     {
         private const uint TrayCallbackMessage = 0x8001; // WM_APP + 1
 
-        private const double CompactWidthThreshold = 600;
-        private bool _isCompactMode;
         private const double MinWindowWidth = 450;
 
         private const int WM_NCLBUTTONDBLCLK = 0x00A3;
@@ -89,24 +84,26 @@ namespace CourseList
         {
             InitializeComponent();
             ExtendsContentIntoTitleBar = true;
-            SetTitleBar(AppTitleBar);
-
-            this.SizeChanged += MainWindow_SizeChanged;
-
-            // When enabled, "closing" will hide window to system tray instead of exiting.
-            this.Closed += MainWindow_Closed;
 
             var hwnd = WindowNative.GetWindowHandle(this);
             _hwnd = hwnd;
+
+            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+            _appWindow = AppWindow.GetFromWindowId(windowId);
+            _appWindow.Closing += AppWindow_Closing;
+
+            // 标准高度标题栏：与内置 PaneToggle 尺寸一致；先设 PreferredHeightOption，再 SetTitleBar
+            ApplyStandardTitleBarChrome();
+
+            SetTitleBar(AppTitleBar);
+
+            // When enabled, "closing" will hide window to system tray instead of exiting.
+            this.Closed += MainWindow_Closed;
 
             // Hook WM_NCLBUTTONDBLCLK to prevent compact-mode caption double-click maximizing.
             // This avoids rapid clicking the title-bar adjacent button being interpreted as a caption double-click.
             _wndProcDelegate = WndProcHook;
             _oldWndProcPtr = SetWindowLongPtr(_hwnd, GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
-
-            var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-            _appWindow = AppWindow.GetFromWindowId(windowId);
-            _appWindow.Closing += AppWindow_Closing;
 
             // Initialize tray icon based on current settings.
             var config = ConfigHelper.LoadConfig();
@@ -124,9 +121,20 @@ namespace CourseList
 
             UpdateTrayCloseBehavior(minimizeToTray);
 
-            // Apply initial compact mode state once the window has its first size.
-            // (SizeChanged will also keep it in sync afterwards.)
-            UpdateCompactMode(this.Bounds.Width);
+        }
+
+        private void ApplyStandardTitleBarChrome()
+        {
+            if (_appWindow == null)
+                return;
+            try
+            {
+                _appWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
+            }
+            catch
+            {
+                // 忽略兼容性异常
+            }
         }
 
         private IntPtr WndProcHook(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -147,9 +155,9 @@ namespace CourseList
                     Marshal.StructureToPtr(mmi, lParam, true);
                 }
 
-                if (_isCompactMode && msg == WM_NCLBUTTONDBLCLK)
+                if (msg == WM_NCLBUTTONDBLCLK)
                 {
-                    // Only block caption double-clicks.
+                    // Block caption double-click maximize globally to avoid title-bar button click conflicts.
                     if (wParam.ToInt32() == HTCAPTION)
                         return IntPtr.Zero;
                 }
@@ -162,39 +170,10 @@ namespace CourseList
             return CallWindowProc(_oldWndProcPtr, hWnd, msg, wParam, lParam);
         }
 
-        private void MainWindow_SizeChanged(object sender, WindowSizeChangedEventArgs e)
+        private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args)
         {
-            UpdateCompactMode(e.Size.Width);
-        }
-
-        private void UpdateCompactMode(double width)
-        {
-            bool compact = width > 0 && width <= CompactWidthThreshold;
-            if (compact == _isCompactMode)
-            {
-                // Still ensure the toggle button visibility matches the current mode.
-                CompactNavButton.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
-                return;
-            }
-
-            _isCompactMode = compact;
-            CompactNavButton.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
-
             if (RootFrame?.Content is MainPage mp)
-            {
-                mp.ApplyCompactMode(compact);
-            }
-        }
-
-        private void CompactNavButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (!(_isCompactMode))
-                return;
-
-            if (RootFrame?.Content is MainPage mp)
-            {
                 mp.TogglePaneFromTitleBar();
-            }
         }
 
         private void NavigateToHomePage()

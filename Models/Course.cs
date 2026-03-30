@@ -61,6 +61,29 @@ namespace CourseList.Models
         [JsonIgnore]
         public string NoteWrapped => WrapEvery25(Note);
 
+        /// <summary>用于列表卡片色条绑定（#RRGGBB），解析失败时使用默认蓝。</summary>
+        [JsonIgnore]
+        public Windows.UI.Color UiColor => ParseHexToUiColor(Color);
+
+        private static Windows.UI.Color ParseHexToUiColor(string? hex)
+        {
+            if (string.IsNullOrWhiteSpace(hex) || hex.Length < 7 || hex[0] != '#')
+                return Windows.UI.Color.FromArgb(255, 33, 150, 243);
+
+            try
+            {
+                return Windows.UI.Color.FromArgb(
+                    255,
+                    Convert.ToByte(hex.Substring(1, 2), 16),
+                    Convert.ToByte(hex.Substring(3, 2), 16),
+                    Convert.ToByte(hex.Substring(5, 2), 16));
+            }
+            catch
+            {
+                return Windows.UI.Color.FromArgb(255, 33, 150, 243);
+            }
+        }
+
         private static string WrapEvery25(string? input)
         {
             if (string.IsNullOrEmpty(input))

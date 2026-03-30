@@ -98,8 +98,12 @@
                 <Grid ColumnDefinitions="6,*"
                       ColumnSpacing="10">
                     <Border Grid.Column="0"
-                            CornerRadius="3"
-                            Background="{ThemeResource SystemAccentColor}" />
+                            Width="6"
+                            CornerRadius="3">
+                        <Border.Background>
+                            <SolidColorBrush Color="{x:Bind UiColor}" />
+                        </Border.Background>
+                    </Border>
                     <StackPanel Grid.Column="1"
                                 Orientation="Vertical"
                                 Spacing="6">
@@ -196,18 +200,20 @@
         </Grid>
 
         <!-- 课程列表：必须包在 ScrollViewer 内，否则超出可视区域会被裁剪且无滚动条 -->
+        <!-- 仅纵向滚动：横向不滚动，UniformGridLayout 在可视宽度内自动换行 -->
         <ScrollViewer Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
                       HorizontalContentAlignment="Stretch">
             <muxc:ItemsRepeater x:Name="CourseRepeater"
+                                HorizontalAlignment="Stretch"
                                 ItemTemplate="{StaticResource CourseCardTemplate}">
                 <muxc:ItemsRepeater.Layout>
-                    <!-- 增大单项高度和行间距，避免卡片垂直重叠并完整显示备注 -->
                     <muxc:UniformGridLayout MinItemWidth="220"
                                             MinItemHeight="170"
                                             MinRowSpacing="12"
-                                            MinColumnSpacing="12"/>
+                                            MinColumnSpacing="12"
+                                            ItemsStretch="Fill" />
                 </muxc:ItemsRepeater.Layout>
             </muxc:ItemsRepeater>
         </ScrollViewer>
