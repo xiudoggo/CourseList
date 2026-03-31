@@ -44,6 +44,7 @@ namespace CourseList.Views
 
         // 竖版“小窗”渲染时的单元格映射：day=1..N(周一到周日/工作日)，period=1.._periodCount
         private readonly Dictionary<(int day, int period), Border> _compactCellMap = new();
+        private readonly Dictionary<Border, (int dayCol, int period)> _compactBorderIndexMap = new();
         private readonly Dictionary<int, TextBlock> _compactDayHeaderDateTextByCol = new();
         private const double CompactTimeColumnWidth = 46;
         private const double CompactPeriodRowHeight = 56;
@@ -62,6 +63,10 @@ namespace CourseList.Views
         private double _dragSourceOpacity = 1;
         private double _dragSourceScaleX = 0.95;
         private double _dragSourceScaleY = 0.95;
+
+        // 小窗（compact）模式：单独的虚线落点预览层（不能复用 desktop 的 ScheduleGrid 坐标系）
+        private Rectangle? _compactDragPreviewRect;
+        private Grid? _compactDragPreviewCurrentDayGrid;
 
         /// <summary>拖拽过程中对连续行坐标 fr 做低通平滑，减轻虚线框在节次缝隙处抖动。</summary>
         private double _dragRowSmoothFr = double.NaN;
@@ -366,6 +371,8 @@ namespace CourseList.Views
             CompactTimePanel.Children.Clear();
             CompactDaysPanel.Children.Clear();
             _compactCellMap.Clear();
+            _compactBorderIndexMap.Clear();
+            ClearCompactDragPreview();
             _compactDayHeaderDateTextByCol.Clear();
 
             // 计算显示天数
@@ -449,11 +456,19 @@ namespace CourseList.Views
 
                     border.PointerPressed += CourseCell_PointerPressed;
                     border.DoubleTapped += CourseCell_DoubleTapped;
-                    border.CanDrag = false;
+                    // 紧凑模式下拖拽完全依赖每个卡片自身的 DragStarting/Drop 事件
+                    // （避免使用 desktop 的 ScheduleGrid 坐标系导致小窗无法命中/计算错位）
+                    border.CanDrag = false; // 默认先禁用，按课程是否“本周生效”在 ApplyCourseToCompactCells 中开启
+                    border.AllowDrop = true;
+                    border.DragStarting += CompactCell_DragStarting;
+                    border.DropCompleted += ScheduleCell_DropCompleted;
+                    border.DragOver += CompactCell_DragOver;
+                    border.Drop += CompactCell_DropForward;
 
                     Grid.SetRow(border, period - 1);
                     dayGrid.Children.Add(border);
                     _compactCellMap[(dayCol, period)] = border;
+                    _compactBorderIndexMap[border] = (dayCol, period);
                 }
 
                 columnRoot.Children.Add(dayGrid);
@@ -474,16 +489,7 @@ namespace CourseList.Views
                 if (border == null)
                     continue;
 
-                border.Background = new SolidColorBrush(Colors.Transparent);
-                border.Child = null;
-                border.BorderBrush = null;
-                border.BorderThickness = new Thickness(0);
-                border.Visibility = Visibility.Visible;
-                border.Opacity = 1.0;
-                border.IsHitTestVisible = true;
-                border.CanDrag = false;
-                border.RenderTransform = new ScaleTransform { ScaleX = 0.95, ScaleY = 0.95 };
-                Grid.SetRowSpan(border, 1);
+                ResetBorderToEmpty(border);
             }
         }
 
@@ -655,8 +661,9 @@ namespace CourseList.Views
                 topBorder.BorderBrush = null;
                 topBorder.BorderThickness = new Thickness(0);
                 topBorder.Opacity = targetOpacity;
-                topBorder.IsHitTestVisible = isActive;
-                topBorder.CanDrag = false;
+                // 允许在紧凑布局里点击/拖拽目标（是否“可拖动”由 CanDrag 决定）
+                topBorder.IsHitTestVisible = true;
+                topBorder.CanDrag = isActive;
                 Grid.SetRowSpan(topBorder, spanLen);
 
                 var sp = new StackPanel
@@ -1229,6 +1236,233 @@ namespace CourseList.Views
             }
         }
 
+        // --------- 小窗紧凑模式拖拽（独立于 desktop 的 ScheduleGrid 坐标系）---------
+        private void CompactCell_DragStarting(UIElement sender, DragStartingEventArgs e)
+        {
+            if (sender is not Border border ||
+                !_courseCellMap.TryGetValue(border, out var course) ||
+                !_compactBorderIndexMap.TryGetValue(border, out var idx))
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            // compact 的 Border 使用 dayGrid.RowDefinitions（从 period=1 开始）
+            int start = idx.period;
+            int span = Math.Max(1, Grid.GetRowSpan(border));
+            int end = start + span - 1;
+
+            e.Data.Properties[DragPayloadKey] = $"{course.Id}|{start}|{end}|{span}";
+            e.Data.RequestedOperation = DataPackageOperation.Move;
+
+            _dragSourceBorder = border;
+            _dragSourceOpacity = border.Opacity;
+            if (border.RenderTransform is ScaleTransform st)
+            {
+                _dragSourceScaleX = st.ScaleX;
+                _dragSourceScaleY = st.ScaleY;
+            }
+
+            _dragRowSmoothFr = double.NaN;
+            AnimateDragSourceLift(border, lifting: true);
+        }
+
+        private void CompactCell_DragOver(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+
+            if (e.DataView?.Properties == null || !e.DataView.Properties.ContainsKey(DragPayloadKey))
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+                ClearCompactDragPreview();
+                return;
+            }
+
+            e.AcceptedOperation = DataPackageOperation.Move;
+
+            if (sender is not Border border ||
+                !_compactBorderIndexMap.TryGetValue(border, out var idx))
+            {
+                ClearCompactDragPreview();
+                return;
+            }
+
+            if (!TryParseDragPayload(e, out _, out _, out _, out int span) || span < 1)
+            {
+                ClearCompactDragPreview();
+                return;
+            }
+
+            // 根据 pointer 落在该 Border 内的 Y 位置，计算连续“节次刻度” frRaw
+            var localPos = e.GetPosition(border);
+            double rowH = GetCompactRowHeightForBorder(border);
+            if (rowH < 8)
+                rowH = CompactPeriodRowHeight;
+
+            double frRaw = idx.period + localPos.Y / rowH;
+            frRaw = Math.Clamp(frRaw, 1.0, _periodCount + 1.0 - 1e-6);
+
+            // 更新低通平滑状态，并计算落点 startRow 用于显示预览
+            double fr = GetFrForPlacement(frRaw, isDragOver: true);
+            int startRow = ResolveStartRowFromFr(fr, span);
+
+            int maxStart = _periodCount - span + 1;
+            if (maxStart < 1)
+            {
+                ClearCompactDragPreview();
+                return;
+            }
+
+            startRow = Math.Clamp(startRow, 1, maxStart);
+            UpdateCompactDragPreview(idx.dayCol, startRow, span);
+        }
+
+        private async void CompactCell_DropForward(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            if (e.DataView?.Properties == null ||
+                !TryParseDragPayload(e, out int courseId, out int segStart, out int segEnd, out int span))
+            {
+                ResetDragRowSmoothFr();
+                ClearCompactDragPreview();
+                return;
+            }
+
+            if (sender is not Border border ||
+                !_compactBorderIndexMap.TryGetValue(border, out var idx))
+            {
+                ResetDragRowSmoothFr();
+                ClearCompactDragPreview();
+                return;
+            }
+
+            ClearCompactDragPreview();
+
+            var localPos = e.GetPosition(border);
+            double rowH = GetCompactRowHeightForBorder(border);
+            if (rowH < 8)
+                rowH = CompactPeriodRowHeight;
+
+            double frRaw = idx.period + localPos.Y / rowH;
+            frRaw = Math.Clamp(frRaw, 1.0, _periodCount + 1.0 - 1e-6);
+
+            double fr = GetFrForPlacement(frRaw, isDragOver: false);
+            int targetRow = ResolveStartRowFromFr(fr, span);
+
+            int maxStart = _periodCount - span + 1;
+            if (maxStart < 1)
+            {
+                ResetDragRowSmoothFr();
+                return;
+            }
+            targetRow = Math.Clamp(targetRow, 1, maxStart);
+
+            ResetDragRowSmoothFr();
+            await ProcessScheduleDropAsync(courseId, segStart, segEnd, idx.dayCol, targetRow);
+        }
+
+        private double GetCompactRowHeightForBorder(Border border)
+        {
+            try
+            {
+                var parent = VisualTreeHelper.GetParent(border);
+                if (parent is Grid dayGrid &&
+                    dayGrid.RowDefinitions.Count > 0)
+                {
+                    double h = dayGrid.RowDefinitions[0].ActualHeight;
+                    if (!double.IsNaN(h) && h >= 8)
+                        return h;
+                }
+            }
+            catch
+            {
+                // 忽略，使用 fallback
+            }
+
+            return CompactPeriodRowHeight;
+        }
+
+        private void UpdateCompactDragPreview(int dayCol, int startRow, int span)
+        {
+            if (startRow < 1 || span < 1 || dayCol < 1)
+            {
+                ClearCompactDragPreview();
+                return;
+            }
+
+            if (!_compactCellMap.TryGetValue((dayCol, startRow), out var refBorder) || refBorder == null)
+            {
+                ClearCompactDragPreview();
+                return;
+            }
+
+            var dayGrid = FindCompactDayGridForBorder(refBorder);
+            if (dayGrid == null)
+            {
+                ClearCompactDragPreview();
+                return;
+            }
+
+            if (_compactDragPreviewRect == null)
+            {
+                _compactDragPreviewRect = new Rectangle
+                {
+                    Stroke = new SolidColorBrush(Color.FromArgb(220, 0, 120, 215)),
+                    StrokeThickness = 2,
+                    Fill = new SolidColorBrush(Color.FromArgb(35, 0, 120, 215)),
+                    StrokeDashArray = new DoubleCollection { 5, 4 },
+                    IsHitTestVisible = false,
+                    Visibility = Visibility.Collapsed
+                };
+            }
+
+            // 重新托管到目标 dayGrid（不同 dayGrid 不能共用一个 parent）
+            if (!ReferenceEquals(_compactDragPreviewCurrentDayGrid, dayGrid))
+            {
+                if (_compactDragPreviewRect.Parent is Panel p1)
+                    p1.Children.Remove(_compactDragPreviewRect);
+
+                dayGrid.Children.Add(_compactDragPreviewRect);
+                _compactDragPreviewCurrentDayGrid = dayGrid;
+            }
+
+            Grid.SetRow(_compactDragPreviewRect, startRow - 1);
+            Grid.SetRowSpan(_compactDragPreviewRect, span);
+
+            // 尽量复用卡片的外观尺寸（margin/corner/scale），让虚线边框视觉贴合
+            _compactDragPreviewRect.Margin = refBorder.Margin;
+            _compactDragPreviewRect.RadiusX = refBorder.CornerRadius.TopLeft;
+            _compactDragPreviewRect.RadiusY = refBorder.CornerRadius.TopLeft;
+
+            if (refBorder.RenderTransform is ScaleTransform s)
+                _compactDragPreviewRect.RenderTransform = new ScaleTransform { ScaleX = s.ScaleX, ScaleY = s.ScaleY };
+            else
+                _compactDragPreviewRect.RenderTransform = null;
+
+            _compactDragPreviewRect.HorizontalAlignment = HorizontalAlignment.Stretch;
+            _compactDragPreviewRect.VerticalAlignment = VerticalAlignment.Stretch;
+            _compactDragPreviewRect.Visibility = Visibility.Visible;
+        }
+
+        private void ClearCompactDragPreview()
+        {
+            if (_compactDragPreviewRect != null)
+                _compactDragPreviewRect.Visibility = Visibility.Collapsed;
+            _compactDragPreviewCurrentDayGrid = null;
+        }
+
+        private static Grid? FindCompactDayGridForBorder(Border border)
+        {
+            var element = (DependencyObject?)border;
+            while (element != null)
+            {
+                if (element is Grid g && g.RowDefinitions.Count > 0 && g.RowDefinitions.Count <= 1000)
+                    return g;
+                element = VisualTreeHelper.GetParent(element);
+            }
+            return null;
+        }
+
         private void ScheduleCell_DragStarting(UIElement sender, DragStartingEventArgs e)
         {
             if (sender is not Border border || !_courseCellMap.TryGetValue(border, out var course))
@@ -1265,6 +1499,7 @@ namespace CourseList.Views
 
             ResetDragRowSmoothFr();
             ClearScheduleDragPreview();
+            ClearCompactDragPreview();
         }
 
         private void ResetDragRowSmoothFr() => _dragRowSmoothFr = double.NaN;
@@ -1916,15 +2151,21 @@ namespace CourseList.Views
             return false;
         }
 
+        private ContentDialog CreateSimpleDialog(string title, string content, string closeText = "确定")
+        {
+            return new ContentDialog
+            {
+                Title = title,
+                Content = content,
+                CloseButtonText = closeText,
+                XamlRoot = this.XamlRoot,
+                RequestedTheme = this.ActualTheme
+            };
+        }
+
         private void ShowToast(string message)
         {
-            var toast = new ContentDialog
-            {
-                Title = "提示",
-                Content = message,
-                CloseButtonText = "确定",
-                XamlRoot = this.XamlRoot
-            };
+            var toast = CreateSimpleDialog("提示", message);
             _ = ContentDialogGuard.ShowAsync(toast);
         }
 
@@ -1935,14 +2176,10 @@ namespace CourseList.Views
         /// </summary>
         private async Task ShowConflictDialogAsync(Course newCourse, Course conflictCourse)
         {
-            var dialog = new ContentDialog
-            {
-                Title = "时间冲突",
-                Content = $"课程 \"{newCourse.Name}\" 的上课时间与已存在的课程 \"{conflictCourse.Name}\" 冲突。\n\n" +
-                          "请修改节次或周类型后再保存。",
-                CloseButtonText = "确定",
-                XamlRoot = this.XamlRoot
-            };
+            var content =
+                $"课程 \"{newCourse.Name}\" 的上课时间与已存在的课程 \"{conflictCourse.Name}\" 冲突。\n\n" +
+                "请修改节次或周类型后再保存。";
+            var dialog = CreateSimpleDialog("时间冲突", content);
 
             await ContentDialogGuard.ShowAsync(dialog);
         }
