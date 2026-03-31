@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace CourseList.Views
 {
@@ -163,7 +164,7 @@ namespace CourseList.Views
             await ShowCourseFormAsync(_selectedCourse);
         }
 
-        private async void DeleteBtn_Click(object sender, RoutedEventArgs e)
+        private void DeleteBtn_Click(object sender, RoutedEventArgs e)
         {
             if (_selectedCourse == null)
             {
@@ -171,22 +172,33 @@ namespace CourseList.Views
                 return;
             }
 
-            var dialog = new ContentDialog
-            {
-                Title = "确认删除",
-                Content = $"确定要删除课程 \"{_selectedCourse.Name}\" 吗？",
-                PrimaryButtonText = "删除",
-                CloseButtonText = "取消",
-                XamlRoot = this.XamlRoot
-            };
+            if (DeleteConfirmText != null)
+                DeleteConfirmText.Text = $"确定要删除课程「{_selectedCourse.Name}」吗？";
 
-            var result = await ContentDialogGuard.ShowAsync(dialog);
-            if (result == ContentDialogResult.Primary)
+            if (sender is FrameworkElement fe)
+                FlyoutBase.ShowAttachedFlyout(fe);
+        }
+
+        private void DeleteConfirmCancel_Click(object sender, RoutedEventArgs e)
+        {
+            DeleteConfirmFlyout?.Hide();
+        }
+
+        private async void DeleteConfirmOk_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedCourse == null)
             {
-                await DeleteCourseAsync(_selectedCourse.Id);
-                _selectedCourse = null;
-                ShowToast("课程已删除");
+                DeleteConfirmFlyout?.Hide();
+                ShowToast("请先在列表中点击选择要删除的课程");
+                return;
             }
+
+            int id = _selectedCourse.Id;
+            DeleteConfirmFlyout?.Hide();
+            await DeleteCourseAsync(id);
+            _selectedCourse = null;
+            _selectedCardBorder = null;
+            ShowToast("课程已删除");
         }
 
         private async Task ShowCourseFormAsync(Course? course)

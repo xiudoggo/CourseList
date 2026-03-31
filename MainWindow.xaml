@@ -1,34 +1,116 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Window
-    x:Class="CourseList.MainWindow"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:CourseList"
-    xmlns:views="using:CourseList.Views"
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d"
-    Title="CourseList">
+  x:Class="CourseList.MainWindow"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:local="using:CourseList"
+  xmlns:views="using:CourseList.Views"
+  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  mc:Ignorable="d"
+  Title="CourseList"
+>
+  <Window.SystemBackdrop>
+    <MicaBackdrop />
+  </Window.SystemBackdrop>
 
-    <Window.SystemBackdrop>
-        <MicaBackdrop />
-    </Window.SystemBackdrop>
+  <Grid x:Name="RootGrid">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
 
-    <Grid x:Name="RootGrid">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+    <!-- 原生 TitleBar 控件内置侧栏键（PaneToggleRequested），与系统标题栏同一套输入路径；高度在代码中设为 Standard -->
+    <TitleBar
+      x:Name="AppTitleBar"
+      Grid.Row="0"
+      Title=""
+      IsPaneToggleButtonVisible="True"
+      PaneToggleRequested="AppTitleBar_PaneToggleRequested"
+    >
+      <!-- 左侧：相对定位的两个按钮 + 图书图标文字 -->
+      <TitleBar.LeftHeader>
+        <RelativePanel
+          x:Name="TitleBarButtonsPanel"
+          HorizontalAlignment="Left"
+          VerticalAlignment="Center">
 
-        <!-- 原生 TitleBar 控件内置侧栏键（PaneToggleRequested），与系统标题栏同一套输入路径；高度在代码中设为 Standard -->
-        <TitleBar x:Name="AppTitleBar"
-                  Grid.Row="0"
-                  Title="📘 我的课程管理系统"
-                  IsPaneToggleButtonVisible="True"
-                  PaneToggleRequested="AppTitleBar_PaneToggleRequested" />
+          <!-- 小窗口/大窗口切换（基准元素） -->
+          <Button
+            x:Name="WindowModeToggleBtn"
+            Width="36"
+            Height="36"
+            Background="Transparent"
+            BorderThickness="0"
+            Padding="0"
+            ToolTipService.ToolTip="切换为小窗口模式"
+            Click="WindowModeToggleBtn_Click"
+            RelativePanel.RightOf="PinTopToggleBtn"
+            RelativePanel.AlignVerticalCenterWithPanel="True">
+            <Grid Width="20" Height="20">
+              <SymbolIcon
+                x:Name="WindowModeIconSmall"
+                Symbol="FullScreen"
+                Width="20"
+                Height="20"
+                Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                Opacity="1"/>
+              <SymbolIcon
+                x:Name="WindowModeIconLarge"
+                Symbol="BackToWindow"
+                Width="20"
+                Height="20"
+                Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                Opacity="0"/>
+            </Grid>
+          </Button>
 
-        <Frame x:Name="RootFrame"
-               Grid.Row="1"
-               SourcePageType="views:MainPage" />
-    </Grid>
+          <!-- 置顶（Pin）：相对基准元素放在左侧 -->
+          <ToggleButton
+            x:Name="PinTopToggleBtn"
+            Width="36"
+            Height="36"
+            Background="Transparent"
+            BorderThickness="0"
+            Padding="0"
+            ToolTipService.ToolTip="置顶"
+            Checked="PinTopToggleBtn_Checked"
+            Unchecked="PinTopToggleBtn_Unchecked"
+            RelativePanel.AlignLeftWithPanel="True"
+            RelativePanel.AlignVerticalCenterWithPanel="True">
+            <SymbolIcon
+              x:Name="PinSymbol"
+              Symbol="Pin"
+              Width="20"
+              Height="20"
+              Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" />
+          </ToggleButton>
+
+          <!-- 图书图标 + 文字（跟在基准按钮右侧） -->
+          <StackPanel
+            x:Name="BrandStackPanel"
+            Orientation="Horizontal"
+            RelativePanel.RightOf="WindowModeToggleBtn"
+            RelativePanel.AlignVerticalCenterWithPanel="True"
+            Background="Transparent"
+            IsHitTestVisible="False"
+            Margin="8,0,0,0">
+            <SymbolIcon
+              Symbol="Library"
+              Width="36"
+              Height="36"
+              Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" />
+            <TextBlock
+              x:Name="BrandTitleText"
+              Text="我的课程管理系统"
+              FontSize="14"
+              VerticalAlignment="Center"
+              Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" />
+          </StackPanel>
+        </RelativePanel>
+      </TitleBar.LeftHeader>
+    </TitleBar>
+
+    <Frame x:Name="RootFrame" Grid.Row="1" SourcePageType="views:MainPage" />
+  </Grid>
 </Window>

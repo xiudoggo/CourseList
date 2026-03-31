@@ -1,19 +1,12 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
 using System;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.InteropServices;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
 using CourseList.Views;
 using WinRT.Interop;
 using CourseList.Helpers;
+using CourseList.Helpers.Platform;
+using CourseList.Helpers.Ui;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using System.Threading.Tasks;
@@ -34,10 +27,10 @@ namespace CourseList
 
         private const double MinWindowWidth = 450;
 
-        private const int WM_NCLBUTTONDBLCLK = 0x00A3;
-        private const int HTCAPTION = 0x0002;
-        private const int GWLP_WNDPROC = -4;
-        private const int WM_GETMINMAXINFO = 0x0024;
+        // 依据当前 NavigationView 的 compact/expanded 阈值（MainPage 里为 520/768）
+        private const double CompactWidthDip = MinWindowWidth;   // 小窗口固定到最小拖拽宽度
+        private const double ExpandedWidthDip = 1008; // 大窗口固定一个合适宽度
+        private const double ExpandedModeThresholdWidthDip = 768;
 
         private IntPtr _hwnd;
         private IntPtr _oldWndProcPtr;
@@ -45,40 +38,14 @@ namespace CourseList
 
         private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct POINT
-        {
-            public int X;
-            public int Y;
-        }
-
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct MINMAXINFO
-        {
-            public POINT ptReserved;
-            public POINT ptMaxSize;
-            public POINT ptMaxPosition;
-            public POINT ptMinTrackSize;
-            public POINT ptMaxTrackSize;
-        }
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern uint GetDpiForWindow(IntPtr hWnd);
-
-        private Win32TrayIcon? _trayIcon;
+        private TrayMenuController? _trayIcon;
         private AppWindow? _appWindow;
 
         private bool _trayExitRequested;
-        private bool _isHiddenToTray;
 
         private bool _closePromptInProgress;
         private bool _directCloseRequested;
+        private WindowModeController? _windowModeController;
 
         public MainWindow()
         {
@@ -96,31 +63,97 @@ namespace CourseList
             ApplyStandardTitleBarChrome();
 
             SetTitleBar(AppTitleBar);
-
             // When enabled, "closing" will hide window to system tray instead of exiting.
             this.Closed += MainWindow_Closed;
 
             // Hook WM_NCLBUTTONDBLCLK to prevent compact-mode caption double-click maximizing.
             // This avoids rapid clicking the title-bar adjacent button being interpreted as a caption double-click.
             _wndProcDelegate = WndProcHook;
-            _oldWndProcPtr = SetWindowLongPtr(_hwnd, GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
+            _oldWndProcPtr = WindowInteropHelper.SetWindowLongPtr(_hwnd, WindowInteropHelper.GwlpWndProc, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
 
             // Initialize tray icon based on current settings.
             var config = ConfigHelper.LoadConfig();
             bool minimizeToTray = config.MinimizeToTrayOnClose;
 
-            _trayIcon = new Win32TrayIcon(
+            _trayIcon = new TrayMenuController(
                 hwnd: hwnd,
                 callbackMessage: TrayCallbackMessage,
                 // 托盘图标始终创建并可见；关闭行为由 MinimizeToTrayOnClose 决定
                 startHidden: false,
                 tooltip: "CourseList",
                 onRestoreRequested: RestoreFromTray,
-                onOpenHomeRequested: OpenHomeFromTrayMenu,
+                onShowExpandedRequested: ShowExpandedFromTrayMenu,
+                onShowCompactRequested: ShowCompactFromTrayMenu,
                 onExitRequested: ExitFromTray);
 
             UpdateTrayCloseBehavior(minimizeToTray);
 
+            // Initialize custom title-bar controls.
+            try
+            {
+                PinTopToggleBtn.IsChecked = false;
+                SetAlwaysOnTop(false);
+                PinSymbol.Symbol = Symbol.Pin;
+
+                _windowModeController = new WindowModeController(
+                    hwnd: _hwnd,
+                    appWindow: _appWindow!,
+                    toggleButton: WindowModeToggleBtn,
+                    iconSmall: WindowModeIconSmall,
+                    iconLarge: WindowModeIconLarge,
+                    brandTitleText: BrandTitleText,
+                    minWindowWidthDip: MinWindowWidth,
+                    compactWidthDip: CompactWidthDip,
+                    expandedWidthDip: ExpandedWidthDip,
+                    expandedModeThresholdWidthDip: ExpandedModeThresholdWidthDip);
+                _windowModeController.UpdateToggleTip();
+                _appWindow!.Changed += AppWindow_Changed_ForWindowModeTip;
+            }
+            catch
+            {
+                // ignore
+            }
+
+        }
+
+        private void AppWindow_Changed_ForWindowModeTip(object sender, AppWindowChangedEventArgs args)
+        {
+            _windowModeController?.UpdateToggleTip();
+        }
+
+        private void SetAlwaysOnTop(bool alwaysOnTop)
+        {
+            try
+            {
+                if (_appWindow?.Presenter is OverlappedPresenter presenter)
+                    presenter.IsAlwaysOnTop = alwaysOnTop;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private void PinTopToggleBtn_Checked(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            SetAlwaysOnTop(true);
+            PinSymbol.Symbol = Symbol.UnPin;
+            ToolTipService.SetToolTip(PinTopToggleBtn, "取消置顶");
+        }
+
+        private void PinTopToggleBtn_Unchecked(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            SetAlwaysOnTop(false);
+            PinSymbol.Symbol = Symbol.Pin;
+            ToolTipService.SetToolTip(PinTopToggleBtn, "置顶");
+        }
+
+        private async void WindowModeToggleBtn_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            if (_windowModeController == null)
+                return;
+
+            await _windowModeController.ToggleAsync();
         }
 
         private void ApplyStandardTitleBarChrome()
@@ -129,7 +162,11 @@ namespace CourseList
                 return;
             try
             {
-                _appWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Standard;
+                // 让最小化/最大化/关闭等系统 caption buttons 更大
+                _appWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+
+                // 避免 TitleBar 默认窗口图标影响你要的“无标题”视觉
+                _appWindow.TitleBar.IconShowOptions = IconShowOptions.HideIconAndSystemMenu;
             }
             catch
             {
@@ -141,24 +178,17 @@ namespace CourseList
         {
             try
             {
-                if (msg == WM_GETMINMAXINFO)
+                if (msg == WindowInteropHelper.WmGetMinMaxInfo)
                 {
                     // 通过 Win32 获取最小拖拽尺寸，防止窗口缩到过窄后“回闪到最小宽度”。
                     // 该方式不做 Move/Resize，不干预后续放大/缩小手感。
-                    var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
-                    // Win32 的 ptMinTrackSize 使用“像素”，而 WinUI 的宽度/阈值是 “view pixel(DIP)”。
-                    // 在高 DPI 下 DIP->像素换算必须使用 Win32 DPI（不能用 DisplayInformation，因为 WndProc 非 CoreWindow 线程）。
-                    uint dpi = GetDpiForWindow(hWnd);
-                    if (dpi == 0) dpi = 96; // fallback
-                    double pixelPerDip = dpi / 96.0;
-                    mmi.ptMinTrackSize.X = (int)Math.Round(MinWindowWidth * pixelPerDip);
-                    Marshal.StructureToPtr(mmi, lParam, true);
+                    WindowInteropHelper.SetMinTrackWidthFromDip(hWnd, lParam, MinWindowWidth);
                 }
 
-                if (msg == WM_NCLBUTTONDBLCLK)
+                if (msg == WindowInteropHelper.WmNcLButtonDblClk)
                 {
                     // Block caption double-click maximize globally to avoid title-bar button click conflicts.
-                    if (wParam.ToInt32() == HTCAPTION)
+                    if (wParam.ToInt32() == WindowInteropHelper.HtCaption)
                         return IntPtr.Zero;
                 }
             }
@@ -167,7 +197,7 @@ namespace CourseList
                 // ignore
             }
 
-            return CallWindowProc(_oldWndProcPtr, hWnd, msg, wParam, lParam);
+            return WindowInteropHelper.CallWindowProc(_oldWndProcPtr, hWnd, msg, wParam, lParam);
         }
 
         private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args)
@@ -200,25 +230,42 @@ namespace CourseList
             }
         }
 
-        private void OpenHomeFromTrayMenu()
+        private void ShowExpandedFromTrayMenu()
         {
             if (_trayExitRequested)
                 return;
 
-            // 只“显示/置顶/激活”，不做页面导航。
-            if (_isHiddenToTray)
+            if (_trayIcon?.IsHiddenToTray == true)
             {
                 RestoreFromTray();
             }
             else
             {
-                // 如果只是被最小化到后台/遮挡，确保窗口显示出来。
-                _appWindow?.Show();
+                if (_appWindow != null)
+                    _trayIcon?.EnsureWindowShown(_appWindow);
                 Activate();
-                return;
             }
 
-            Activate();
+            _ = _windowModeController?.SetExpandedAsync();
+        }
+
+        private void ShowCompactFromTrayMenu()
+        {
+            if (_trayExitRequested)
+                return;
+
+            if (_trayIcon?.IsHiddenToTray == true)
+            {
+                RestoreFromTray();
+            }
+            else
+            {
+                if (_appWindow != null)
+                    _trayIcon?.EnsureWindowShown(_appWindow);
+                Activate();
+            }
+
+            _ = _windowModeController?.SetCompactAsync();
         }
 
         private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -254,13 +301,9 @@ namespace CourseList
 
         private void HideToTrayInternal()
         {
-            _isHiddenToTray = true;
-            if (_appWindow != null)
-            {
-                _appWindow.IsShownInSwitchers = false;
-                _appWindow.Hide();
-            }
-            _trayIcon?.SetHidden(false);
+            if (_appWindow == null || _trayIcon == null)
+                return;
+            _trayIcon.HideToTray(_appWindow);
         }
 
         private async Task ShowClosePromptAsync()
@@ -268,56 +311,14 @@ namespace CourseList
             try
             {
                 var config = ConfigHelper.LoadConfig();
-
-                // Two radio options + "do not prompt again"
-                var minimizeRadio = new RadioButton
-                {
-                    Content = "最小化到系统托盘",
-                    IsChecked = config.MinimizeToTrayOnClose,
-                    GroupName = "CloseBehavior"
-                };
-
-                var directRadio = new RadioButton
-                {
-                    Content = "直接关闭",
-                    IsChecked = !config.MinimizeToTrayOnClose,
-                    GroupName = "CloseBehavior"
-                };
-
-                var dontRemindCheck = new CheckBox
-                {
-                    Content = "不再提示",
-                    IsChecked = false
-                };
-
-                var stack = new StackPanel { Spacing = 10 };
-                stack.Children.Add(new TextBlock
-                {
-                    Text = "请选择关闭方式：",
-                });
-                stack.Children.Add(minimizeRadio);
-                stack.Children.Add(directRadio);
-                stack.Children.Add(dontRemindCheck);
-
-                var dialog = new ContentDialog
-                {
-                    Title = "点击关闭按钮后：",
-                    Content = stack,
-                    PrimaryButtonText = "确定",
-                    SecondaryButtonText = "取消",
-                    XamlRoot = this.Content?.XamlRoot
-                        ?? RootFrame?.XamlRoot
-                };
-
-                // Ensure dialog uses current theme.
-                dialog.RequestedTheme = (RootFrame as FrameworkElement)?.ActualTheme ?? ElementTheme.Default;
-
-                var result = await ContentDialogGuard.ShowAsync(dialog);
-                if (result != ContentDialogResult.Primary)
+                var dialogResult = await CloseBehaviorDialog.ShowAsync(
+                    xamlRoot: this.Content?.XamlRoot ?? RootFrame?.XamlRoot,
+                    requestedTheme: (RootFrame as FrameworkElement)?.ActualTheme ?? ElementTheme.Default,
+                    initialMinimizeToTray: config.MinimizeToTrayOnClose);
+                if (!dialogResult.Confirmed)
                     return;
-
-                bool chooseTray = minimizeRadio.IsChecked == true;
-                bool dontRemind = dontRemindCheck.IsChecked == true;
+                bool chooseTray = dialogResult.MinimizeToTray;
+                bool dontRemind = dialogResult.DontRemindAgain;
 
                 // Persist chosen behavior so future closing matches the last choice.
                 config.MinimizeToTrayOnClose = chooseTray;
@@ -358,13 +359,8 @@ namespace CourseList
             if (_trayExitRequested)
                 return;
 
-            _isHiddenToTray = false;
-
             if (_appWindow != null)
-            {
-                _appWindow.IsShownInSwitchers = true;
-                _appWindow.Show();
-            }
+                _trayIcon?.RestoreFromTray(_appWindow);
 
             // 注意：RootFrame.Content 永远是 MainPage；
             // SettingsPage 实际显示在 MainPage 内部的 ContentFrame。
@@ -381,17 +377,14 @@ namespace CourseList
             if (_trayExitRequested)
                 return;
 
-            if (_isHiddenToTray)
+            if (_trayIcon?.IsHiddenToTray == true)
             {
                 RestoreFromTray();
                 return;
             }
 
             if (_appWindow != null)
-            {
-                _appWindow.IsShownInSwitchers = true;
-                _appWindow.Show();
-            }
+                _trayIcon?.EnsureWindowShown(_appWindow);
 
             Activate();
         }
@@ -427,14 +420,9 @@ namespace CourseList
             _trayIcon.SetHidden(false);
 
             // Avoid a potential "hidden but icon disabled" lockout.
-            if (_isHiddenToTray)
+            if (_trayIcon.IsHiddenToTray && _appWindow != null)
             {
-                _isHiddenToTray = false;
-                if (_appWindow != null)
-                {
-                    _appWindow.IsShownInSwitchers = true;
-                    _appWindow.Show();
-                }
+                _trayIcon.RestoreFromTray(_appWindow);
                 Activate();
             }
         }
@@ -443,6 +431,9 @@ namespace CourseList
         {
             try
             {
+                _windowModeController?.Dispose();
+                _windowModeController = null;
+
                 _trayIcon?.Dispose();
                 _trayIcon = null;
             }

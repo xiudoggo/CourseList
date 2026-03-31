@@ -226,7 +226,24 @@
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <Button x:Name="AddCourseBtn" Content="➕ 新增" Click="AddCourseBtn_Click" Style="{ThemeResource AccentButtonStyle}"/>
                         <Button x:Name="EditCourseBtn" Content="✏️ 编辑" Click="EditCourseBtn_Click"/>
-                        <Button x:Name="DeleteCourseBtn" Content="🗑️ 删除" Click="DeleteCourseBtn_Click"/>
+                        <Button x:Name="DeleteCourseBtn" Content="🗑️ 删除" Click="DeleteCourseBtn_Click">
+                            <FlyoutBase.AttachedFlyout>
+                                <Flyout x:Name="DeleteConfirmFlyout" Placement="Top">
+                                    <StackPanel Spacing="10" MinWidth="240">
+                                        <TextBlock x:Name="DeleteConfirmText"
+                                                   Text="确定要删除该课程吗？"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                            <Button Content="取消" Click="DeleteConfirmCancel_Click"/>
+                                            <Button Content="删除"
+                                                    Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                                    Click="DeleteConfirmOk_Click"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Flyout>
+                            </FlyoutBase.AttachedFlyout>
+                        </Button>
                     </StackPanel>
                 </Border>
 

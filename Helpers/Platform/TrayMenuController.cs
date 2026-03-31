@@ -2,14 +2,14 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Microsoft.UI.Windowing;
 
 namespace CourseList.Helpers
 {
     /// <summary>
-    /// Win32 system tray icon with callbacks routed to the hosting window's WndProc.
-    /// No WinForms dependency.
+    /// Win32 托盘图标与右键菜单控制器。
     /// </summary>
-    public sealed class Win32TrayIcon : IDisposable
+    public sealed class TrayMenuController : IDisposable
     {
         private const uint NIF_MESSAGE = 0x00000001;
         private const uint NIF_ICON = 0x00000002;
@@ -37,21 +37,24 @@ namespace CourseList.Helpers
         private readonly IntPtr _hwnd;
         private readonly uint _callbackMessage;
         private readonly Action _onRestoreRequested;
-        private readonly Action _onOpenHomeRequested;
+        private readonly Action _onShowExpandedRequested;
+        private readonly Action _onShowCompactRequested;
         private readonly Action _onExitRequested;
         private readonly SynchronizationContext? _uiContext;
         private bool _disposed;
+        private bool _isHiddenToTray;
 
         private int _debugLogCount;
 
         private IntPtr _prevWndProc = IntPtr.Zero;
-        private WndProcDelegate? _wndProcDelegate; // keep reference
+        private WndProcDelegate? _wndProcDelegate;
 
         private IntPtr _iconHandle;
         private NOTIFYICONDATA _nid;
 
-        private const int MenuIdOpenHome = 1;
-        private const int MenuIdExit = 2;
+        private const int MenuIdShowExpanded = 1;
+        private const int MenuIdShowCompact = 2;
+        private const int MenuIdExit = 3;
 
         private const int VK_RBUTTON = 0x02;
         private long _lastContextMenuShownAtMs;
@@ -98,13 +101,7 @@ namespace CourseList.Helpers
         private static extern IntPtr LoadIcon(IntPtr hInstance, IntPtr lpIconName);
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        private static extern IntPtr LoadImage(
-            IntPtr hinst,
-            string lpszName,
-            uint uType,
-            int cxDesired,
-            int cyDesired,
-            uint fuLoad);
+        private static extern IntPtr LoadImage(IntPtr hinst, string lpszName, uint uType, int cxDesired, int cyDesired, uint fuLoad);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr hIcon);
@@ -132,14 +129,7 @@ namespace CourseList.Helpers
         private static extern bool DestroyMenu(IntPtr hMenu);
 
         [DllImport("user32.dll", SetLastError = true)]
-        private static extern int TrackPopupMenu(
-            IntPtr hmenu,
-            uint fuFlags,
-            int x,
-            int y,
-            int nReserved,
-            IntPtr hwnd,
-            IntPtr lptpm);
+        private static extern int TrackPopupMenu(IntPtr hmenu, uint fuFlags, int x, int y, int nReserved, IntPtr hwnd, IntPtr lptpm);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -151,7 +141,6 @@ namespace CourseList.Helpers
         {
             try
             {
-                // Prefer custom tray icon
                 string iconPath = PathHelper.GetFullPath(@"Assets/CourseList.ico");
                 if (System.IO.File.Exists(iconPath))
                 {
@@ -161,7 +150,9 @@ namespace CourseList.Helpers
 
                     var hIcon = LoadImage(IntPtr.Zero, iconPath, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
                     if (hIcon != IntPtr.Zero)
+                    {
                         return hIcon;
+                    }
                 }
             }
             catch
@@ -169,25 +160,26 @@ namespace CourseList.Helpers
                 // ignore and fallback
             }
 
-            // Fallback: IDI_APPLICATION = 32512
             const int IDI_APPLICATION = 0x7F00;
             return LoadIcon(IntPtr.Zero, (IntPtr)IDI_APPLICATION);
         }
 
-        public Win32TrayIcon(
+        public TrayMenuController(
             IntPtr hwnd,
             uint callbackMessage,
             bool startHidden,
             string tooltip,
             Action onRestoreRequested,
-            Action onOpenHomeRequested,
+            Action onShowExpandedRequested,
+            Action onShowCompactRequested,
             Action onExitRequested,
             uint iconId = 1)
         {
             _hwnd = hwnd;
             _callbackMessage = callbackMessage;
             _onRestoreRequested = onRestoreRequested ?? throw new ArgumentNullException(nameof(onRestoreRequested));
-            _onOpenHomeRequested = onOpenHomeRequested ?? throw new ArgumentNullException(nameof(onOpenHomeRequested));
+            _onShowExpandedRequested = onShowExpandedRequested ?? throw new ArgumentNullException(nameof(onShowExpandedRequested));
+            _onShowCompactRequested = onShowCompactRequested ?? throw new ArgumentNullException(nameof(onShowCompactRequested));
             _onExitRequested = onExitRequested ?? throw new ArgumentNullException(nameof(onExitRequested));
             _uiContext = SynchronizationContext.Current;
 
@@ -216,10 +208,7 @@ namespace CourseList.Helpers
             SubclassWindowProc();
         }
 
-        private void AddIcon()
-        {
-            Shell_NotifyIcon(NIM_ADD, ref _nid);
-        }
+        private void AddIcon() => Shell_NotifyIcon(NIM_ADD, ref _nid);
 
         private void SubclassWindowProc()
         {
@@ -229,40 +218,71 @@ namespace CourseList.Helpers
 
         public void SetHidden(bool hidden)
         {
-            // Use NIM_MODIFY with state only.
             _nid.uFlags = NIF_STATE;
             _nid.dwState = hidden ? NIS_HIDDEN : 0;
             _nid.dwStateMask = NIS_HIDDEN;
-
             Shell_NotifyIcon(NIM_MODIFY, ref _nid);
-
-            // Restore uFlags for later modify (caller may rely on it).
             _nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_STATE;
+        }
+
+        public bool IsHiddenToTray => _isHiddenToTray;
+
+        public void HideToTray(AppWindow appWindow)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _isHiddenToTray = true;
+            appWindow.IsShownInSwitchers = false;
+            appWindow.Hide();
+            SetHidden(false);
+        }
+
+        public void RestoreFromTray(AppWindow appWindow)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _isHiddenToTray = false;
+            appWindow.IsShownInSwitchers = true;
+            appWindow.Show();
+        }
+
+        public void EnsureWindowShown(AppWindow appWindow)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_isHiddenToTray)
+            {
+                RestoreFromTray(appWindow);
+                return;
+            }
+
+            appWindow.IsShownInSwitchers = true;
+            appWindow.Show();
         }
 
         private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
             if (_disposed)
             {
-                return _prevWndProc == IntPtr.Zero
-                    ? IntPtr.Zero
-                    : CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);
+                return _prevWndProc == IntPtr.Zero ? IntPtr.Zero : CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);
             }
 
             if (msg == _callbackMessage)
             {
-                // For NIF_MESSAGE callbacks, lParam contains the mouse message code.
-                // Be defensive and mask to low-word to avoid platform differences.
                 var mouseMsg = unchecked((uint)lParam.ToInt64() & 0xFFFF);
-                var low = mouseMsg;
-                var hi = unchecked(((uint)lParam.ToInt64() >> 16) & 0xFFFF);
-
-                // Debug: help determine what message codes Windows sends for tray right-click.
-                // Only log first few times to avoid flooding.
                 if (_debugLogCount < 30)
                 {
                     _debugLogCount++;
-                    Debug.WriteLine($"[TrayIcon] cb wParam=0x{unchecked((uint)wParam.ToInt64()):X8} lParam=0x{unchecked((uint)lParam.ToInt64()):X8} low=0x{low:X4} hi=0x{hi:X4} mouseMsg=0x{mouseMsg:X4}");
+                    Debug.WriteLine($"[TrayIcon] cb mouseMsg=0x{mouseMsg:X4}");
                 }
 
                 if (mouseMsg == WM_LBUTTONDBLCLK)
@@ -272,18 +292,16 @@ namespace CourseList.Helpers
                 }
 
                 bool isRightButtonDown = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
-
                 if (mouseMsg == WM_RBUTTONDOWN ||
                     mouseMsg == WM_RBUTTONUP ||
                     mouseMsg == WM_CONTEXTMENU ||
-                    (isRightButtonDown && mouseMsg == 0x0200 /* WM_MOUSEMOVE */))
+                    (isRightButtonDown && mouseMsg == 0x0200))
                 {
-                    // Debounce: avoid showing twice due to multiple callback messages.
                     var now = Environment.TickCount64;
                     if (now - _lastContextMenuShownAtMs < 400)
-                        return _prevWndProc == IntPtr.Zero
-                            ? IntPtr.Zero
-                            : CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);
+                    {
+                        return _prevWndProc == IntPtr.Zero ? IntPtr.Zero : CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);
+                    }
 
                     _lastContextMenuShownAtMs = now;
                     InvokeOnUiThread(ShowContextMenu);
@@ -291,15 +309,15 @@ namespace CourseList.Helpers
                 }
             }
 
-            return _prevWndProc == IntPtr.Zero
-                ? IntPtr.Zero
-                : CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);
+            return _prevWndProc == IntPtr.Zero ? IntPtr.Zero : CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);
         }
 
         private void InvokeOnUiThread(Action action)
         {
             if (_disposed)
+            {
                 return;
+            }
 
             if (_uiContext != null)
             {
@@ -314,58 +332,45 @@ namespace CourseList.Helpers
                         // ignore
                     }
                 }, null);
+                return;
             }
-            else
-            {
-                // Fallback: should be rare (construction should happen on UI thread).
-                action();
-            }
+
+            action();
         }
 
         private void ShowContextMenu()
         {
-            if (_disposed)
+            if (_disposed || !TryGetCursorPos(out var pt))
+            {
                 return;
-
-            // If cursor pos cannot be obtained, just fallback to center-ish (0,0) would be bad;
-            // in that unlikely case, we skip showing the menu.
-            if (!TryGetCursorPos(out var pt))
-                return;
+            }
 
             IntPtr hMenu = CreatePopupMenu();
             if (hMenu == IntPtr.Zero)
+            {
                 return;
+            }
 
             try
             {
-                AppendMenu(hMenu, MF_STRING, (UIntPtr)MenuIdOpenHome, "显示CourseList");
+                AppendMenu(hMenu, MF_STRING, (UIntPtr)MenuIdShowExpanded, "显示大窗口");
+                AppendMenu(hMenu, MF_STRING, (UIntPtr)MenuIdShowCompact, "显示小窗口");
                 AppendMenu(hMenu, MF_STRING, (UIntPtr)MenuIdExit, "退出");
 
-                // Ensure the tray window is considered foreground; otherwise TrackPopupMenu
-                // can fail to render on some systems when the app window is hidden.
                 SetForegroundWindow(_hwnd);
-
-                int selectedId = TrackPopupMenu(
-                    hMenu,
-                    TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_TOPALIGN,
-                    pt.X,
-                    pt.Y,
-                    0,
-                    _hwnd,
-                    IntPtr.Zero);
-
+                int selectedId = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_TOPALIGN, pt.X, pt.Y, 0, _hwnd, IntPtr.Zero);
                 if (_disposed)
-                    return;
-
-                // Debug: record what TrackPopupMenu returned (help diagnose if it never displayed).
-                if (_debugLogCount < 60)
                 {
-                    Debug.WriteLine($"[TrayIcon] TrackPopupMenu return={selectedId} at ({pt.X},{pt.Y})");
+                    return;
                 }
 
-                if (selectedId == MenuIdOpenHome)
+                if (selectedId == MenuIdShowExpanded)
                 {
-                    _onOpenHomeRequested();
+                    _onShowExpandedRequested();
+                }
+                else if (selectedId == MenuIdShowCompact)
+                {
+                    _onShowCompactRequested();
                 }
                 else if (selectedId == MenuIdExit)
                 {
@@ -380,23 +385,14 @@ namespace CourseList.Helpers
 
         private static bool TryGetCursorPos(out POINT pt)
         {
-            // user32 GetCursorPos returns BOOL; we keep it conservative.
             pt = default;
-            var res = GetCursorPos(out pt);
-            return res;
+            return GetCursorPos(out pt);
         }
 
         public void Dispose()
         {
             _disposed = true;
-            try
-            {
-                Shell_NotifyIcon(NIM_DELETE, ref _nid);
-            }
-            catch
-            {
-                // ignore
-            }
+            try { Shell_NotifyIcon(NIM_DELETE, ref _nid); } catch { }
 
             try
             {
@@ -405,10 +401,7 @@ namespace CourseList.Helpers
                     SetWindowLongPtr(_hwnd, GWLP_WNDPROC, _prevWndProc);
                 }
             }
-            catch
-            {
-                // ignore
-            }
+            catch { }
 
             try
             {
@@ -418,11 +411,7 @@ namespace CourseList.Helpers
                     _iconHandle = IntPtr.Zero;
                 }
             }
-            catch
-            {
-                // ignore
-            }
+            catch { }
         }
     }
 }
-
