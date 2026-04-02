@@ -33,7 +33,12 @@
             </muxc:NavigationViewItem>
             <muxc:NavigationViewItem Content="课程列表" Tag="CourseListPage">
                 <muxc:NavigationViewItem.Icon>
-                    <SymbolIcon Symbol="List"/>
+                    <FontIcon Glyph="&#xE9A4;" />
+                </muxc:NavigationViewItem.Icon>
+            </muxc:NavigationViewItem>
+            <muxc:NavigationViewItem Content="待办" Tag="ToDoPage">
+                <muxc:NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xEADF;"/>
                 </muxc:NavigationViewItem.Icon>
             </muxc:NavigationViewItem>
             <muxc:NavigationViewItem Content="设置" Tag="SettingsPage">

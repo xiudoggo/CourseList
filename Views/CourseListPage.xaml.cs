@@ -8,8 +8,10 @@ using Windows.UI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media.Animation;
 
 namespace CourseList.Views
 {
@@ -87,7 +89,7 @@ namespace CourseList.Views
                     CourseRepeater.Layout = new UniformGridLayout
                     {
                         MinItemWidth = 220,
-                        MinItemHeight = 170,
+                        MinItemHeight = 182,
                         MinRowSpacing = 12,
                         MinColumnSpacing = 12,
                         ItemsStretch = UniformGridLayoutItemsStretch.Fill
@@ -140,6 +142,8 @@ namespace CourseList.Views
         private async void CourseListPage_Loaded(object sender, RoutedEventArgs e)
         {
             SchemeHelper.SchemeChanged += OnSchemeChanged;
+            if (CourseListSelectionTeachingTip != null)
+                CourseListSelectionTeachingTip.XamlRoot = XamlRoot;
             await LoadCoursesAsync();
         }
 
@@ -158,7 +162,7 @@ namespace CourseList.Views
         {
             if (_selectedCourse == null)
             {
-                ShowToast("请先在列表中点击选择要编辑的课程");
+                ShowCourseListSelectionTip(EditBtn, "请先在列表中点击选择要编辑的课程");
                 return;
             }
             await ShowCourseFormAsync(_selectedCourse);
@@ -168,7 +172,7 @@ namespace CourseList.Views
         {
             if (_selectedCourse == null)
             {
-                ShowToast("请先在列表中点击选择要删除的课程");
+                ShowCourseListSelectionTip(DeleteBtn, "请先在列表中点击选择要删除的课程");
                 return;
             }
 
@@ -189,7 +193,7 @@ namespace CourseList.Views
             if (_selectedCourse == null)
             {
                 DeleteConfirmFlyout?.Hide();
-                ShowToast("请先在列表中点击选择要删除的课程");
+                ShowCourseListSelectionTip(DeleteBtn, "请先在列表中点击选择要删除的课程");
                 return;
             }
 
@@ -380,7 +384,8 @@ namespace CourseList.Views
                 Title = "提示",
                 Content = message,
                 CloseButtonText = "确定",
-                XamlRoot = this.XamlRoot
+                XamlRoot = this.XamlRoot,
+                RequestedTheme = this.ActualTheme
             };
             _ = ContentDialogGuard.ShowAsync(toast);
         }
@@ -394,7 +399,8 @@ namespace CourseList.Views
                 Title = "时间冲突",
                 Content = $"课程 \"{newCourse.Name}\" 的上课时间与已存在的课程 \"{conflictCourse.Name}\" 冲突。\n\n请修改节次或周类型后再保存。",
                 CloseButtonText = "确定",
-                XamlRoot = this.XamlRoot
+                XamlRoot = this.XamlRoot,
+                RequestedTheme = this.ActualTheme
             };
 
             await ContentDialogGuard.ShowAsync(dialog);
@@ -409,7 +415,7 @@ namespace CourseList.Views
         }
 
         /// <summary>
-        /// 列表中点击课程卡片时选中，并高亮边框
+        /// 列表中点击课程卡片时选中（强调色淡背景 + 轻微抬升，非粗边框）
         /// </summary>
         private void CourseCard_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
@@ -419,28 +425,96 @@ namespace CourseList.Views
             if (border.Tag is not Course course)
                 return;
 
-            // 还原之前选中的卡片样式
             if (_selectedCardBorder != null && _selectedCardBorder != border)
-            {
-                _selectedCardBorder.BorderThickness = new Thickness(1);
-                if (Application.Current.Resources.TryGetValue("CardStrokeColorDefaultBrush", out var defaultBrushObj) &&
-                    defaultBrushObj is Brush defaultBrush)
-                {
-                    _selectedCardBorder.BorderBrush = defaultBrush;
-                }
-            }
+                RestoreCourseCardDefaultVisual(_selectedCardBorder);
 
-            // 设置当前选中
             _selectedCourse = course;
             _selectedCardBorder = border;
+            ApplyCourseCardSelectedVisual(border);
+            AnimateCourseCardHoverMetrics(border, 1.03, 0, 100);
+        }
 
-            // 使用系统强调色高亮当前卡片边框
-            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accentObj) &&
-                accentObj is Color accentColor)
+        private static void RestoreCourseCardDefaultVisual(Border border)
+        {
+            float z = border.Name == "CompactRootBorder" ? 10f : 12f;
+            ThemeResourceHelper.ApplyDefaultCardChrome(border, border);
+            border.BorderThickness = new Thickness(1);
+            border.Translation = new Vector3(0, 0, z);
+            AnimateCourseCardHoverMetrics(border, 1.0, 0, 0);
+        }
+
+        private static void ApplyCourseCardSelectedVisual(Border border)
+        {
+            float zBase = border.Name == "CompactRootBorder" ? 10f : 12f;
+            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accObj) && accObj is Color accent)
+                border.Background = new SolidColorBrush(Color.FromArgb(76, accent.R, accent.G, accent.B));
+            if (ThemeResourceHelper.TryGetThemeBrush(border, "CourseListCardStrokeBrush", out var st) && st != null)
+                border.BorderBrush = st;
+            border.BorderThickness = new Thickness(1);
+            border.Translation = new Vector3(0, 0, zBase + 10f);
+        }
+
+        private void ShowCourseListSelectionTip(FrameworkElement target, string subtitle)
+        {
+            CourseListSelectionTeachingTip.Target = target;
+            CourseListSelectionTeachingTip.Subtitle = subtitle;
+            CourseListSelectionTeachingTip.XamlRoot = XamlRoot;
+            CourseListSelectionTeachingTip.IsOpen = true;
+        }
+
+        private const double CourseHoverLiftY = -9;
+
+        private void CourseCard_PointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is not Border border)
+                return;
+            double scale = ReferenceEquals(border, _selectedCardBorder) ? 1.03 : 1.02;
+            AnimateCourseCardHoverMetrics(border, scale, CourseHoverLiftY, 120);
+        }
+
+        private void CourseCard_PointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is not Border border)
+                return;
+
+            double target = ReferenceEquals(border, _selectedCardBorder) ? 1.03 : 1.0;
+            AnimateCourseCardHoverMetrics(border, target, 0, 140);
+        }
+
+        private static bool TryGetCourseCardHoverTransforms(Border border, out ScaleTransform? scale, out TranslateTransform? translate)
+        {
+            scale = null;
+            translate = null;
+            if (border.RenderTransform is TransformGroup tg && tg.Children.Count >= 2)
             {
-                border.BorderBrush = new SolidColorBrush(accentColor);
-                border.BorderThickness = new Thickness(2);
+                scale = tg.Children[0] as ScaleTransform;
+                translate = tg.Children[1] as TranslateTransform;
+                return scale != null && translate != null;
             }
+            return false;
+        }
+
+        private static void AnimateCourseCardHoverMetrics(Border border, double toScale, double toTranslateY, int durationMs)
+        {
+            if (!TryGetCourseCardHoverTransforms(border, out var st, out var tt) || st == null || tt == null)
+                return;
+
+            var sb = new Storyboard();
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var dur = new Duration(TimeSpan.FromMilliseconds(durationMs));
+
+            void Add(DependencyObject target, string prop, double to)
+            {
+                var anim = new DoubleAnimation { To = to, Duration = dur, EasingFunction = ease };
+                Storyboard.SetTarget(anim, target);
+                Storyboard.SetTargetProperty(anim, prop);
+                sb.Children.Add(anim);
+            }
+
+            Add(st, "ScaleX", toScale);
+            Add(st, "ScaleY", toScale);
+            Add(tt, "Y", toTranslateY);
+            sb.Begin();
         }
     }
 }

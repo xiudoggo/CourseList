@@ -121,6 +121,12 @@ namespace CourseList.Views
                 case CourseListPage clp:
                     clp.ApplyCompactMode(_isCompactMode);
                     break;
+                case ToDoPage tdp:
+                    tdp.ApplyCompactMode(_isCompactMode);
+                    break;
+                case ToDoFormPage tfp:
+                    tfp.ApplyCompactMode(_isCompactMode);
+                    break;
                 case SettingsPage spg:
                     spg.ApplyCompactMode(_isCompactMode);
                     break;
@@ -140,6 +146,7 @@ namespace CourseList.Views
                     "HomePage" => typeof(HomePage),
                     "SchedulePage" => typeof(SchedulePage),
                     "CourseListPage" => typeof(CourseListPage),
+                    "ToDoPage" => typeof(ToDoPage),
                     "SettingsPage" => typeof(SettingsPage),
                     _ => typeof(HomePage)
                 };

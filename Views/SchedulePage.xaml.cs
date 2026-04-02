@@ -124,6 +124,8 @@ namespace CourseList.Views
         private async void SchedulePage_Loaded(object sender, RoutedEventArgs e)
         {
             _isPageLoaded = true;
+            if (ScheduleSelectionTeachingTip != null)
+                ScheduleSelectionTeachingTip.XamlRoot = XamlRoot;
             var config = ConfigHelper.LoadConfig();
             _scheduleWeekRange = config.ScheduleWeekRange == 5 ? 5 : 7;
             _periodCount = config.PeriodCount;
@@ -2017,7 +2019,7 @@ namespace CourseList.Views
         {
             if (SelectedCourse == null)
             {
-                ShowToast("请先在课程表上点击选择要编辑的课程");
+                ShowScheduleSelectionTip(EditCourseBtn, "请先在课程表上点击选择要编辑的课程");
                 return;
             }
             await ShowCourseFormAsync(SelectedCourse);
@@ -2027,7 +2029,7 @@ namespace CourseList.Views
         {
             if (SelectedCourse == null)
             {
-                ShowToast("请先在课程表上点击选择要删除的课程");
+                ShowScheduleSelectionTip(DeleteCourseBtn, "请先在课程表上点击选择要删除的课程");
                 return;
             }
 
@@ -2049,7 +2051,7 @@ namespace CourseList.Views
             if (SelectedCourse == null)
             {
                 DeleteConfirmFlyout?.Hide();
-                ShowToast("请先在课程表上点击选择要删除的课程");
+                ShowScheduleSelectionTip(DeleteCourseBtn, "请先在课程表上点击选择要删除的课程");
                 return;
             }
 
@@ -2161,6 +2163,14 @@ namespace CourseList.Views
                 XamlRoot = this.XamlRoot,
                 RequestedTheme = this.ActualTheme
             };
+        }
+
+        private void ShowScheduleSelectionTip(FrameworkElement target, string subtitle)
+        {
+            ScheduleSelectionTeachingTip.Target = target;
+            ScheduleSelectionTeachingTip.Subtitle = subtitle;
+            ScheduleSelectionTeachingTip.XamlRoot = XamlRoot;
+            ScheduleSelectionTeachingTip.IsOpen = true;
         }
 
         private void ShowToast(string message)

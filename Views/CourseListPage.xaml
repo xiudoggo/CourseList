@@ -4,14 +4,17 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:CourseList.Views"
     xmlns:models="using:CourseList.Models"
-    xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:media="using:Microsoft.UI.Xaml.Media">
 
     <Page.Resources>
         <!-- 课程卡片模板（固定宽高 + 内部滚动） -->
         <DataTemplate x:Key="CourseCardTemplate" x:DataType="models:Course">
+            <!-- 外层留白：hover 缩放时边框不被布局裁切 -->
+            <Grid Margin="6">
             <Border x:Name="RootBorder"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    Background="{ThemeResource CourseListCardBackgroundBrush}"
+                    BorderBrush="{ThemeResource CourseListCardStrokeBrush}"
                     BorderThickness="1"
                     CornerRadius="16"
                     Padding="0"
@@ -21,7 +24,20 @@
                     HorizontalAlignment="Stretch"
                     Height="170"
                     Tag="{x:Bind}"
-                    PointerPressed="CourseCard_PointerPressed">
+                    Translation="0,0,12"
+                    RenderTransformOrigin="0.5,0.5"
+                    PointerPressed="CourseCard_PointerPressed"
+                    PointerEntered="CourseCard_PointerEntered"
+                    PointerExited="CourseCard_PointerExited">
+                <Border.Shadow>
+                    <media:ThemeShadow />
+                </Border.Shadow>
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform ScaleX="1" ScaleY="1"/>
+                        <TranslateTransform X="0" Y="0"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
                 <!-- 卡片内部内容允许滚动，避免撑高卡片导致重叠 -->
                 <ScrollViewer Padding="12"
                               VerticalScrollBarVisibility="Auto"
@@ -80,13 +96,15 @@
                     </Grid>
                 </ScrollViewer>
             </Border>
+            </Grid>
         </DataTemplate>
 
         <!-- 小窗 compact：横向长条列表卡片（不显示筛选/操作按钮，仅展示列表） -->
         <DataTemplate x:Key="CourseCardCompactTemplate" x:DataType="models:Course">
+            <Grid Margin="6">
             <Border x:Name="CompactRootBorder"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    Background="{ThemeResource CourseListCardBackgroundBrush}"
+                    BorderBrush="{ThemeResource CourseListCardStrokeBrush}"
                     BorderThickness="1"
                     CornerRadius="16"
                     Padding="12,10"
@@ -94,7 +112,20 @@
                     Tag="{x:Bind}"
                     HorizontalAlignment="Stretch"
                     Height="92"
-                    PointerPressed="CourseCard_PointerPressed">
+                    Translation="0,0,10"
+                    RenderTransformOrigin="0.5,0.5"
+                    PointerPressed="CourseCard_PointerPressed"
+                    PointerEntered="CourseCard_PointerEntered"
+                    PointerExited="CourseCard_PointerExited">
+                <Border.Shadow>
+                    <media:ThemeShadow />
+                </Border.Shadow>
+                <Border.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform ScaleX="1" ScaleY="1"/>
+                        <TranslateTransform X="0" Y="0"/>
+                    </TransformGroup>
+                </Border.RenderTransform>
                 <Grid ColumnDefinitions="6,*"
                       ColumnSpacing="10">
                     <Border Grid.Column="0"
@@ -127,6 +158,7 @@
                     </StackPanel>
                 </Grid>
             </Border>
+            </Grid>
         </DataTemplate>
     </Page.Resources>
 
@@ -151,7 +183,7 @@
                        Text="📚 课程列表" FontSize="28" FontWeight="Bold" VerticalAlignment="Center"/>
 
             <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                <Button x:Name="AddBtn" Content="➕ 新增课程" Click="AddBtn_Click" Style="{ThemeResource AccentButtonStyle}"/>
+                <Button x:Name="AddBtn" Content="➕ 新增课程" Click="AddBtn_Click"/>
                 <Button x:Name="EditBtn" Content="✏️ 编辑课程" Click="EditBtn_Click"/>
                 <Button x:Name="DeleteBtn" Content="🗑️ 删除课程" Click="DeleteBtn_Click">
                     <FlyoutBase.AttachedFlyout>
@@ -227,7 +259,7 @@
                                 ItemTemplate="{StaticResource CourseCardTemplate}">
                 <muxc:ItemsRepeater.Layout>
                     <muxc:UniformGridLayout MinItemWidth="220"
-                                            MinItemHeight="170"
+                                            MinItemHeight="182"
                                             MinRowSpacing="12"
                                             MinColumnSpacing="12"
                                             ItemsStretch="Fill" />
@@ -244,5 +276,10 @@
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"
                    Visibility="Collapsed"/>
+
+        <TeachingTip x:Name="CourseListSelectionTeachingTip"
+                     Title="提示"
+                     PreferredPlacement="Bottom"
+                     IsLightDismissEnabled="True"/>
     </Grid>
 </Page>

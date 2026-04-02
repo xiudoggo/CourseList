@@ -275,5 +275,10 @@
                 </Button>
             </Grid>
         </Grid>
+
+        <TeachingTip x:Name="ScheduleSelectionTeachingTip"
+                     Title="提示"
+                     PreferredPlacement="Bottom"
+                     IsLightDismissEnabled="True"/>
     </Grid>
 </Page>

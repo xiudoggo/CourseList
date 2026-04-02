@@ -7,6 +7,7 @@
 | **MainPage** | 主导航壳：侧栏菜单 + 内容 `Frame` |
 | **HomePage** | 首页：今日课程概览 |
 | **CourseListPage** | 课程列表：筛选、卡片、增删改入口 |
+| **ToDoPage** | 待办页面：当前占位（内容待实现） |
 | **SchedulePage** | 周课表：网格渲染、选中、拖放调课、按周覆盖 |
 | **CourseFormPage** | 课程新增/编辑表单 |
 | **SettingsPage** | 主题、关闭行为、方案管理、学期与节次时间、教务导入入口 |

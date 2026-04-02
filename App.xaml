@@ -9,7 +9,17 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
-
+            <!-- 列表卡片：实色填充（Fluent CardBackgroundFillColorDefaultBrush 在部分主题为半透明） -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="CourseListCardBackgroundBrush" Color="White" />
+                    <SolidColorBrush x:Key="CourseListCardStrokeBrush" Color="#D0D0D0" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="CourseListCardBackgroundBrush" Color="#FF2C2C2C" />
+                    <SolidColorBrush x:Key="CourseListCardStrokeBrush" Color="#FF484848" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
