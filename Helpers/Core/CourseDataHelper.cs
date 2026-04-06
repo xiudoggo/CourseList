@@ -13,6 +13,23 @@ namespace CourseList.Helpers
 {
     public static class CourseDataHelper
     {
+        private static readonly object _cacheLock = new object();
+        private static readonly Dictionary<string, List<Course>> _coursesCacheBySchemeId = new Dictionary<string, List<Course>>(StringComparer.Ordinal);
+
+        public static void InvalidateCache(string? schemeId = null)
+        {
+            lock (_cacheLock)
+            {
+                if (string.IsNullOrEmpty(schemeId))
+                {
+                    _coursesCacheBySchemeId.Clear();
+                    return;
+                }
+
+                _coursesCacheBySchemeId.Remove(schemeId);
+            }
+        }
+
         private static string GetCourseFilePath()
         {
             SchemeHelper.EnsureMigrated();
@@ -40,6 +57,19 @@ namespace CourseList.Helpers
         {
             try
             {
+                var currentSchemeId = SchemeHelper.GetCurrentSchemeId() ?? string.Empty;
+                if (!string.IsNullOrEmpty(currentSchemeId))
+                {
+                    lock (_cacheLock)
+                    {
+                        if (_coursesCacheBySchemeId.TryGetValue(currentSchemeId, out var cached) && cached != null)
+                        {
+                            // 返回快照，避免调用方修改缓存引用
+                            return cached.ToList();
+                        }
+                    }
+                }
+
                 var courseFilePath = GetCourseFilePath();
                 PathHelper.EnsureFolderExists();
                 var schemeFolder = Path.GetDirectoryName(courseFilePath);
@@ -47,6 +77,14 @@ namespace CourseList.Helpers
                     Directory.CreateDirectory(schemeFolder);
                 if (!File.Exists(courseFilePath))
                 {
+                    var empty = new List<Course>();
+                    if (!string.IsNullOrEmpty(currentSchemeId))
+                    {
+                        lock (_cacheLock)
+                        {
+                            _coursesCacheBySchemeId[currentSchemeId] = empty;
+                        }
+                    }
                     return new List<Course>();
                 }
 
@@ -54,6 +92,16 @@ namespace CourseList.Helpers
                 var courses = JsonSerializer.Deserialize<List<Course>>(json)
                               ?? new List<Course>();
                 NormalizeCourseWeeks(courses);
+
+                if (!string.IsNullOrEmpty(currentSchemeId))
+                {
+                    // 缓存规范化后的快照
+                    lock (_cacheLock)
+                    {
+                        _coursesCacheBySchemeId[currentSchemeId] = courses.ToList();
+                    }
+                }
+
                 return courses;
             }
             catch
@@ -77,6 +125,16 @@ namespace CourseList.Helpers
                 {
                     _pendingSnapshot = snapshot;
                     _pendingSchemeId = SchemeHelper.GetCurrentSchemeId();
+
+                    // 先同步更新内存缓存（即刻让 UI 读到最新数据），落盘由去抖任务完成
+                    if (!string.IsNullOrEmpty(_pendingSchemeId))
+                    {
+                        lock (_cacheLock)
+                        {
+                            _coursesCacheBySchemeId[_pendingSchemeId] = snapshot.ToList();
+                        }
+                    }
+
                     _debounceCts?.Cancel();
                     _debounceCts = new CancellationTokenSource();
                     var token = _debounceCts.Token;
@@ -158,6 +216,15 @@ namespace CourseList.Helpers
                 finally
                 {
                     _saveSemaphore.Release();
+                }
+
+                var cacheKey = string.IsNullOrWhiteSpace(schemeId) ? SchemeHelper.GetCurrentSchemeId() : schemeId;
+                if (!string.IsNullOrEmpty(cacheKey))
+                {
+                    lock (_cacheLock)
+                    {
+                        _coursesCacheBySchemeId[cacheKey] = snapshot.ToList();
+                    }
                 }
             }
             catch

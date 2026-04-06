@@ -229,6 +229,9 @@ namespace CourseList.Helpers
             if (string.IsNullOrEmpty(schemeId) || !schemes.Exists(s => s.Id == schemeId))
                 return;
             SaveSchemes(schemes, schemeId);
+            // 方案切换后配置/课程等缓存需失效，避免页面读到旧方案数据
+            try { ConfigHelper.InvalidateCache(); } catch { }
+            try { CourseDataHelper.InvalidateCache(); } catch { }
             SchemeChanged?.Invoke(null, EventArgs.Empty);
         }
 

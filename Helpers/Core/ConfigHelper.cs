@@ -161,6 +161,21 @@ namespace CourseList.Helpers
         private const int MaxPeriodCount = 20;
         private const int MaxSemesterWeeks = 30;
 
+        private static readonly object _cacheLock = new object();
+        private static string? _cachedSchemeId;
+        private static AppConfig? _cachedMergedConfig;
+        private static DateTime _cachedAtUtc;
+
+        public static void InvalidateCache()
+        {
+            lock (_cacheLock)
+            {
+                _cachedSchemeId = null;
+                _cachedMergedConfig = null;
+                _cachedAtUtc = default;
+            }
+        }
+
         public static AppConfig LoadConfig()
         {
             try
@@ -168,14 +183,41 @@ namespace CourseList.Helpers
                 SchemeHelper.EnsureMigrated();
                 PathHelper.EnsureFolderExists();
 
+                var schemeId = SchemeHelper.GetCurrentSchemeId();
+                lock (_cacheLock)
+                {
+                    if (!string.IsNullOrEmpty(_cachedSchemeId) &&
+                        _cachedMergedConfig != null &&
+                        string.Equals(_cachedSchemeId, schemeId, StringComparison.Ordinal))
+                    {
+                        return CloneConfig(_cachedMergedConfig);
+                    }
+                }
+
                 var global = LoadGlobalConfigFromSchemes();
                 var scheme = LoadSchemeConfig();
                 var merged = MergeConfig(global, scheme);
-                return Normalize(merged);
+                var normalized = Normalize(merged);
+
+                lock (_cacheLock)
+                {
+                    _cachedSchemeId = schemeId;
+                    _cachedMergedConfig = normalized;
+                    _cachedAtUtc = DateTime.UtcNow;
+                }
+
+                return CloneConfig(normalized);
             }
             catch
             {
-                return Normalize(new AppConfig());
+                var normalized = Normalize(new AppConfig());
+                lock (_cacheLock)
+                {
+                    _cachedSchemeId = SchemeHelper.GetCurrentSchemeId();
+                    _cachedMergedConfig = normalized;
+                    _cachedAtUtc = DateTime.UtcNow;
+                }
+                return CloneConfig(normalized);
             }
         }
 
@@ -261,11 +303,49 @@ namespace CourseList.Helpers
                     });
                     File.WriteAllText(schemePath, schemeJson);
                 }
+
+                // 配置已更新：失效缓存，避免页面继续读到旧配置
+                InvalidateCache();
             }
             catch
             {
                 // 可以加日志
             }
+        }
+
+        private static AppConfig CloneConfig(AppConfig config)
+        {
+            // AppConfig 是可变对象；返回副本可避免外部意外修改缓存内容。
+            var clone = new AppConfig
+            {
+                Theme = config.Theme,
+                MinimizeToTrayOnClose = config.MinimizeToTrayOnClose,
+                ClosePromptEnabled = config.ClosePromptEnabled,
+                ScheduleWeekRange = config.ScheduleWeekRange,
+                PeriodCount = config.PeriodCount,
+                SemesterStartMonday = config.SemesterStartMonday,
+                SemesterTotalWeeks = config.SemesterTotalWeeks,
+                PeriodTimeRanges = new List<PeriodTimeRange>()
+            };
+
+            if (config.PeriodTimeRanges != null)
+            {
+                foreach (var p in config.PeriodTimeRanges)
+                {
+                    if (p == null)
+                    {
+                        clone.PeriodTimeRanges.Add(new PeriodTimeRange());
+                        continue;
+                    }
+                    clone.PeriodTimeRanges.Add(new PeriodTimeRange
+                    {
+                        StartTime = p.StartTime,
+                        EndTime = p.EndTime
+                    });
+                }
+            }
+
+            return clone;
         }
 
         private static AppConfig Normalize(AppConfig config)

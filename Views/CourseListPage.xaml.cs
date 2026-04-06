@@ -12,12 +12,15 @@ using System.Numerics;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Dispatching;
+using System.Collections.ObjectModel;
 
 namespace CourseList.Views
 {
     public sealed partial class CourseListPage : Page
     {
         private List<Course> _courses = new List<Course>();
+        private readonly ObservableCollection<Course> _filteredCourses = new ObservableCollection<Course>();
         private Course? _selectedCourse;
         private Border? _selectedCardBorder;
         private Thickness _desktopMargin = new Thickness(20);
@@ -30,6 +33,9 @@ namespace CourseList.Views
         private int? _periodFilter;
         private int _maxPeriods = 11;
 
+        private DispatcherQueueTimer? _applyFiltersTimer;
+        private const int ApplyFiltersDebounceMs = 200;
+
         public CourseListPage()
         {
             this.InitializeComponent();
@@ -40,6 +46,12 @@ namespace CourseList.Views
 
             Loaded += CourseListPage_Loaded;
             Unloaded += CourseListPage_Unloaded;
+
+            // ItemsSource 只绑定一次，后续通过 ObservableCollection 增量更新，避免重绑导致的 UI 重建。
+            if (CourseRepeater != null)
+                CourseRepeater.ItemsSource = _filteredCourses;
+
+            EnsureApplyFiltersTimer();
         }
 
         public void ApplyCompactMode(bool isCompact)
@@ -51,10 +63,6 @@ namespace CourseList.Views
             {
                 CourseListRootGrid.Margin = new Thickness(12);
                 FiltersStackPanel.Visibility = Visibility.Collapsed;
-
-                if (AddBtn != null) AddBtn.Visibility = Visibility.Collapsed;
-                if (EditBtn != null) EditBtn.Visibility = Visibility.Collapsed;
-                if (DeleteBtn != null) DeleteBtn.Visibility = Visibility.Collapsed;
 
                 if (CourseRepeater != null)
                 {
@@ -101,10 +109,6 @@ namespace CourseList.Views
                         CourseRepeater.ItemTemplate = dataTemplate;
                     }
                 }
-
-                if (AddBtn != null) AddBtn.Visibility = Visibility.Visible;
-                if (EditBtn != null) EditBtn.Visibility = Visibility.Visible;
-                if (DeleteBtn != null) DeleteBtn.Visibility = Visibility.Visible;
             }
         }
 
@@ -150,7 +154,7 @@ namespace CourseList.Views
         private async Task LoadCoursesAsync()
         {
             _courses = await CourseDataHelper.LoadCoursesAsync();
-            ApplyFiltersToList();
+            ScheduleApplyFilters();
         }
 
         private async void AddBtn_Click(object sender, RoutedEventArgs e)
@@ -280,10 +284,34 @@ namespace CourseList.Views
 
         private void RefreshList()
         {
-            ApplyFiltersToList();
+            ScheduleApplyFilters();
         }
 
-        private void ApplyFiltersToList()
+        private void EnsureApplyFiltersTimer()
+        {
+            if (_applyFiltersTimer != null)
+                return;
+
+            _applyFiltersTimer = DispatcherQueue.CreateTimer();
+            _applyFiltersTimer.IsRepeating = false;
+            _applyFiltersTimer.Interval = TimeSpan.FromMilliseconds(ApplyFiltersDebounceMs);
+            _applyFiltersTimer.Tick += (_, __) => ApplyFiltersToListNow();
+        }
+
+        private void ScheduleApplyFilters()
+        {
+            EnsureApplyFiltersTimer();
+            if (_applyFiltersTimer == null)
+            {
+                ApplyFiltersToListNow();
+                return;
+            }
+
+            _applyFiltersTimer.Stop();
+            _applyFiltersTimer.Start();
+        }
+
+        private void ApplyFiltersToListNow()
         {
             // XAML 初始化阶段可能会触发 SelectionChanged（例如 SelectedIndex=0）。
             // 这时 x:Name 字段还未完成赋值，因此需要防止空引用崩溃。
@@ -318,15 +346,17 @@ namespace CourseList.Views
 
             var filtered = query.ToList();
 
-            CourseRepeater.ItemsSource = null;
-            CourseRepeater.ItemsSource = filtered;
+            // 增量更新集合，避免 ItemsSource 重绑引发 ItemsRepeater 重新创建所有元素。
+            _filteredCourses.Clear();
+            foreach (var c in filtered)
+                _filteredCourses.Add(c);
             EmptyText.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void SearchBox_TextChanged(object sender, Microsoft.UI.Xaml.Controls.TextChangedEventArgs e)
         {
             _searchText = SearchBox.Text ?? string.Empty;
-            ApplyFiltersToList();
+            ScheduleApplyFilters();
         }
 
         private void FilterCombo_SelectionChanged(object sender, Microsoft.UI.Xaml.Controls.SelectionChangedEventArgs e)
@@ -338,7 +368,7 @@ namespace CourseList.Views
             var header = combo.Header?.ToString();
             if (combo.SelectedItem is not ComboBoxItem selectedItem)
             {
-                ApplyFiltersToList();
+                ScheduleApplyFilters();
                 return;
             }
 
@@ -351,7 +381,7 @@ namespace CourseList.Views
                     _weekTypeFilter = null;
                 else if (header == "包含节次")
                     _periodFilter = null;
-                ApplyFiltersToList();
+                ScheduleApplyFilters();
                 return;
             }
 
@@ -374,7 +404,7 @@ namespace CourseList.Views
                     _periodFilter = period;
             }
 
-            ApplyFiltersToList();
+            ScheduleApplyFilters();
         }
 
         private void ShowToast(string message)

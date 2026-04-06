@@ -55,7 +55,12 @@ namespace CourseList.Views
         private double _lastCompactSizingWidth = double.NaN;
 
         private List<WeekScheduleOverride> _weekOverrides = new();
+        private Dictionary<(int courseId, int weekIndex), WeekScheduleOverride> _weekOverrideIndex = new();
         private const string DragPayloadKey = "CourseListScheduleDrag";
+
+        private static readonly SolidColorBrush TransparentBrush = new SolidColorBrush(Colors.Transparent);
+        private static readonly SolidColorBrush WhiteBrush = new SolidColorBrush(Colors.White);
+        private readonly Dictionary<string, SolidColorBrush> _courseBrushCache = new Dictionary<string, SolidColorBrush>(StringComparer.OrdinalIgnoreCase);
 
         private Canvas? _scheduleDragOverlay;
         private Rectangle? _scheduleDragPreviewRect;
@@ -326,6 +331,7 @@ namespace CourseList.Views
         {
             _courses = await CourseDataHelper.LoadCoursesAsync();
             _weekOverrides = await WeekScheduleOverrideHelper.LoadAsync();
+            _weekOverrideIndex = ScheduleEffectiveHelper.BuildOverrideIndex(_weekOverrides);
         }
 
         private void BuildScheduleGrid()
@@ -446,7 +452,7 @@ namespace CourseList.Views
                         CornerRadius = new CornerRadius(6),
                         // 只保留左右边界缝隙，不做列间明显留白
                         Margin = new Thickness(1, 0, 1, 0),
-                        Background = new SolidColorBrush(Colors.Transparent),
+                        Background = TransparentBrush,
                         BorderBrush = null,
                         BorderThickness = new Thickness(0),
                         Opacity = 1.0,
@@ -623,7 +629,7 @@ namespace CourseList.Views
 
         private void ApplyCourseToCompactCells(Course course)
         {
-            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrides);
+            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrideIndex, _weekOverrides);
 
             // 5天模式：跳过周六/周日课程
             if (_scheduleWeekRange == 5 &&
@@ -647,7 +653,7 @@ namespace CourseList.Views
                 return;
 
             var segments = GetConsecutiveSegments(sortedDistinctPeriods);
-            var courseColor = new SolidColorBrush(ColorHelperFromHex(course.Color));
+            var courseColor = GetCourseBrush(course.Color);
             bool isActive = IsCourseActiveInWeek(course, _displayWeek);
             double targetOpacity = isActive ? 1.0 : 0.35;
 
@@ -683,7 +689,7 @@ namespace CourseList.Views
                     Text = course.Name,
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
-                    Foreground = new SolidColorBrush(Colors.White),
+                    Foreground = WhiteBrush,
                     FontSize = 13,
                     FontWeight = FontWeights.SemiBold
                 });
@@ -693,7 +699,7 @@ namespace CourseList.Views
                     Text = course.Teacher,
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
-                    Foreground = new SolidColorBrush(Colors.White),
+                    Foreground = WhiteBrush,
                     FontSize = 11
                 });
 
@@ -702,7 +708,7 @@ namespace CourseList.Views
                     Text = course.Classroom,
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
-                    Foreground = new SolidColorBrush(Colors.White),
+                    Foreground = WhiteBrush,
                     FontSize = 11
                 });
 
@@ -713,7 +719,7 @@ namespace CourseList.Views
                         Text = "（非本周）",
                         TextWrapping = TextWrapping.NoWrap,
                         HorizontalAlignment = HorizontalAlignment.Center,
-                        Foreground = new SolidColorBrush(Colors.White),
+                        Foreground = WhiteBrush,
                         FontSize = 10,
                         FontWeight = FontWeights.SemiBold
                     });
@@ -748,7 +754,7 @@ namespace CourseList.Views
                         continue;
 
                     border.Visibility = Visibility.Collapsed;
-                    border.Background = new SolidColorBrush(Colors.Transparent);
+                    border.Background = TransparentBrush;
                     border.Child = null;
                     border.BorderBrush = null;
                     border.BorderThickness = new Thickness(0);
@@ -917,7 +923,7 @@ namespace CourseList.Views
                     var border = new Border
                     {
                         Style = this.Resources["CourseCellStyle"] as Style,
-                        Background = new SolidColorBrush(Colors.Transparent),
+                        Background = TransparentBrush,
                         CornerRadius = new CornerRadius(6),
                         Margin = new Thickness(4),
                         BorderBrush = null,
@@ -1000,7 +1006,7 @@ namespace CourseList.Views
                 if (border == null)
                     continue;
 
-                border.Background = new SolidColorBrush(Colors.Transparent);
+                border.Background = TransparentBrush;
                 border.Child = null;
                 border.BorderBrush = null;
                 border.BorderThickness = new Thickness(0);
@@ -1045,7 +1051,7 @@ namespace CourseList.Views
 
         private void ApplyCourseToCells(Course course)
         {
-            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrides);
+            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrideIndex, _weekOverrides);
 
             // 只显示工作日：跳过周六/周日课程
             if (_scheduleWeekRange == 5 &&
@@ -1069,7 +1075,7 @@ namespace CourseList.Views
                 return;
 
             var segments = GetConsecutiveSegments(sortedDistinctPeriods);
-            var courseColor = new SolidColorBrush(ColorHelperFromHex(course.Color));
+            var courseColor = GetCourseBrush(course.Color);
             bool isActive = IsCourseActiveInWeek(course, _displayWeek);
             double targetOpacity = isActive ? 1.0 : 0.35;
 
@@ -1107,7 +1113,7 @@ namespace CourseList.Views
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = new SolidColorBrush(Colors.White),
+                    Foreground = WhiteBrush,
                     FontSize = 16,
                     FontWeight = FontWeights.SemiBold
                 });
@@ -1118,7 +1124,7 @@ namespace CourseList.Views
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = new SolidColorBrush(Colors.White),
+                    Foreground = WhiteBrush,
                     FontSize = 14
                 });
 
@@ -1128,7 +1134,7 @@ namespace CourseList.Views
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = new SolidColorBrush(Colors.White),
+                    Foreground = WhiteBrush,
                     FontSize = 14
                 });
 
@@ -1139,7 +1145,7 @@ namespace CourseList.Views
                         Text = "（非本周）",
                         TextWrapping = TextWrapping.NoWrap,
                         HorizontalAlignment = HorizontalAlignment.Center,
-                        Foreground = new SolidColorBrush(Colors.White),
+                        Foreground = WhiteBrush,
                         FontSize = 12,
                         FontWeight = FontWeights.SemiBold
                     });
@@ -1174,7 +1180,7 @@ namespace CourseList.Views
                         continue;
 
                     border.Visibility = Visibility.Collapsed;
-                    border.Background = new SolidColorBrush(Colors.Transparent);
+                    border.Background = TransparentBrush;
                     border.Child = null;
                     border.BorderBrush = null;
                     border.BorderThickness = new Thickness(0);
@@ -1191,7 +1197,7 @@ namespace CourseList.Views
             if (border == null)
                 return;
 
-            border.Background = new SolidColorBrush(Colors.Transparent);
+            border.Background = TransparentBrush;
             border.Child = null;
             border.BorderBrush = null;
             border.BorderThickness = new Thickness(0);
@@ -1211,6 +1217,17 @@ namespace CourseList.Views
             }
         }
 
+        private SolidColorBrush GetCourseBrush(string? hex)
+        {
+            var key = string.IsNullOrWhiteSpace(hex) ? "#808080" : hex.Trim();
+            if (_courseBrushCache.TryGetValue(key, out var cached) && cached != null)
+                return cached;
+
+            var brush = new SolidColorBrush(ColorHelperFromHex(key));
+            _courseBrushCache[key] = brush;
+            return brush;
+        }
+
         private void ClearCourseCells(Course course)
         {
             foreach (var kv in _courseCellMap.ToList())
@@ -1219,7 +1236,7 @@ namespace CourseList.Views
                     _courseCellMap.Remove(kv.Key);
             }
 
-            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrides);
+            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrideIndex, _weekOverrides);
             if (effPeriods.Count == 0)
                 return;
 
@@ -1848,7 +1865,7 @@ namespace CourseList.Views
             if (course == null)
                 return;
 
-            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrides);
+            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrideIndex, _weekOverrides);
             if (!SegmentMatchesEffective(segStart, segEnd, effPeriods))
                 return;
 
@@ -1903,6 +1920,7 @@ namespace CourseList.Views
                     DayOfWeek = newDow,
                     ClassPeriods = newPeriods
                 });
+                _weekOverrideIndex = ScheduleEffectiveHelper.BuildOverrideIndex(_weekOverrides);
                 await WeekScheduleOverrideHelper.SaveAsync(_weekOverrides);
                 BuildScheduleGrid();
                 return;
@@ -1919,6 +1937,7 @@ namespace CourseList.Views
                 }
 
                 _weekOverrides.RemoveAll(o => o.CourseId == course.Id && o.WeekIndex == _displayWeek);
+                _weekOverrideIndex = ScheduleEffectiveHelper.BuildOverrideIndex(_weekOverrides);
                 await WeekScheduleOverrideHelper.SaveAsync(_weekOverrides);
                 course.DayOfWeek = newDow;
                 course.ClassPeriods = newPeriods;
@@ -2125,6 +2144,7 @@ namespace CourseList.Views
 
             ClearCourseCells(target);
             WeekScheduleOverrideHelper.RemoveAllForCourse(_weekOverrides, courseId);
+            _weekOverrideIndex = ScheduleEffectiveHelper.BuildOverrideIndex(_weekOverrides);
             await WeekScheduleOverrideHelper.SaveAsync(_weekOverrides);
             _courses.RemoveAll(c => c.Id == courseId);
             await CourseDataHelper.SaveCoursesAsync(_courses);

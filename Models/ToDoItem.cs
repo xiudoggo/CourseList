@@ -91,9 +91,6 @@ namespace CourseList.Models
             }
         }
 
-        /// <summary>创建时间（createdAt）</summary>
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
-
         /// <summary>内容</summary>
         public string Content { get; set; } = string.Empty;
 
@@ -118,20 +115,8 @@ namespace CourseList.Models
             }
         }
 
-        /// <summary>更新时间（updatedAt）</summary>
-        public DateTime UpdatedAt { get; set; } = DateTime.Now;
-
         /// <summary>标签/分类（tags）</summary>
         public List<string> Tags { get; set; } = new();
-
-        /// <summary>
-        /// 分类别名（Categories），与 Tags 指向同一集合语义。
-        /// </summary>
-        public List<string> Categories
-        {
-            get => Tags;
-            set => Tags = value ?? new List<string>();
-        }
 
         [JsonIgnore]
         public string DueDateText => DueDate.HasValue ? $"截止：{DueDate:yyyy-MM-dd}" : "截止：未设置";
@@ -185,5 +170,8 @@ namespace CourseList.Models
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+
+        /// <summary>在直接修改 <see cref="Tags"/> 内容后调用，以便列表 ItemsRepeater 等绑定刷新。</summary>
+        public void NotifyTagsChanged() => OnPropertyChanged(nameof(Tags));
     }
 }

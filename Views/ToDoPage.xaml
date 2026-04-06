@@ -6,13 +6,15 @@
     xmlns:models="using:CourseList.Models"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:media="using:Microsoft.UI.Xaml.Media"
-    xmlns:helpers="using:CourseList.Helpers">
+    xmlns:helpers="using:CourseList.Helpers"
+    xmlns:uihelpers="using:CourseList.Helpers.Ui">
 
     <Page.Resources>
         <helpers:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
+        <uihelpers:TagNameToBrushConverter x:Key="TagNameToBrushConverter"/>
         <DataTemplate x:Key="ToDoCardTemplate" x:DataType="models:ToDoItem">
             <Grid Margin="6">
-            <Border Height="160"
+            <Border Height="168"
                     HorizontalAlignment="Stretch"
                     Background="{ThemeResource ControlFillColorSecondaryBrush}"
                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
@@ -25,7 +27,7 @@
                     BorderThickness="1"
                     CornerRadius="12"
                     Padding="10"
-                    Height="160"
+                    Height="168"
                     Tag="{x:Bind}"
                     Translation="0,0,10"
                     RenderTransformOrigin="0.5,0.5"
@@ -72,20 +74,51 @@
                                Text="{x:Bind Title}"
                                FontSize="16"
                                FontWeight="SemiBold"
-                               TextWrapping="Wrap"
+                               TextWrapping="NoWrap"
+                               MaxLines="1"
                                TextTrimming="CharacterEllipsis"/>
                     <TextBlock Grid.Row="2"
                                Margin="0,4,0,0"
                                Text="{x:Bind Content}"
                                FontSize="13"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextWrapping="Wrap"
-                               MaxLines="2"
+                               TextWrapping="NoWrap"
+                               MaxLines="1"
                                TextTrimming="CharacterEllipsis"/>
                     <StackPanel Grid.Row="3"
                                 Orientation="Vertical"
                                 VerticalAlignment="Bottom"
                                 Spacing="2">
+                        <muxc:ItemsRepeater IsHitTestVisible="False"
+                                            ItemsSource="{x:Bind Tags, Mode=OneWay}"
+                                            HorizontalAlignment="Left">
+                            <muxc:ItemsRepeater.Layout>
+                                <uihelpers:FlowWrapLayout HorizontalSpacing="6" VerticalSpacing="4"/>
+                            </muxc:ItemsRepeater.Layout>
+                            <muxc:ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <Border MinHeight="22"
+                                            CornerRadius="11"
+                                            Padding="8,3"
+                                            HorizontalAlignment="Left"
+                                            MaxWidth="280"
+                                            Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneWay}"
+                                            BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            ToolTipService.ToolTip="{x:Bind Mode=OneWay}">
+                                        <TextBlock Text="{x:Bind Mode=OneWay}"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#FFFFFFFF"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="NoWrap"
+                                                   MaxLines="1"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </Border>
+                                </DataTemplate>
+                            </muxc:ItemsRepeater.ItemTemplate>
+                        </muxc:ItemsRepeater>
+
                         <TextBlock Text="{x:Bind DueDateText}"
                                    FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -115,7 +148,7 @@
                     Click="AddTodoBtn_Click"/>
             <Button x:Name="EditTodoBtn"
                     Grid.Column="2"
-                    Content="✏️ 修改"
+                    Content="✏️ 编辑"
                     Margin="8,0,0,0"
                     Click="EditTodoBtn_Click"/>
             <Button x:Name="DeleteTodoBtn"
@@ -156,7 +189,7 @@
                                     ItemTemplate="{StaticResource ToDoCardTemplate}">
                     <muxc:ItemsRepeater.Layout>
                         <muxc:UniformGridLayout MinItemWidth="220"
-                                                MinItemHeight="172"
+                                                MinItemHeight="180"
                                                 MinColumnSpacing="12"
                                                 MinRowSpacing="12"
                                                 ItemsStretch="Fill"/>

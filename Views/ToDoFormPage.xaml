@@ -4,7 +4,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:CourseList.Views"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:uihelpers="using:CourseList.Helpers.Ui"
     Language="zh-CN">
+
+    <Page.Resources>
+        <uihelpers:TagNameToBrushConverter x:Key="TagNameToBrushConverter"/>
+    </Page.Resources>
 
     <ScrollViewer>
         <Grid x:Name="FormRootGrid"
@@ -55,7 +60,14 @@
                              Grid.Column="1"
                              MaxWidth="620"
                              HorizontalAlignment="Stretch"
-                             PlaceholderText="输入任务标题"/>
+                             PlaceholderText="输入任务标题">
+                        <FlyoutBase.AttachedFlyout>
+                            <Flyout x:Name="TitleErrorFlyout" Placement="Bottom">
+                                <TextBlock Text="标题不能为空"
+                                           Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                            </Flyout>
+                        </FlyoutBase.AttachedFlyout>
+                    </TextBox>
 
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="任务内容" VerticalAlignment="Top" FontWeight="SemiBold" Margin="0,8,0,0"/>
                     <TextBox x:Name="ContentTextBox"
@@ -71,15 +83,25 @@
                              PlaceholderText="输入任务详细内容"/>
 
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="截止日期" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                    <DatePicker x:Name="DueDatePicker"
-                                Grid.Row="2"
+                    <StackPanel Grid.Row="2"
                                 Grid.Column="1"
-                                DayFormat="{}{day.integer}日"
-                                MonthFormat="{}{month.integer}月"
-                                YearVisible="False"
-                                Language="zh-CN"
-                                MaxWidth="320"
-                                HorizontalAlignment="Left"/>
+                                Orientation="Vertical"
+                                Spacing="6"
+                                HorizontalAlignment="Left">
+                        <CheckBox x:Name="HasDueDateCheckBox"
+                                  Content="是否有截止日期"
+                                  IsChecked="True"
+                                  Checked="HasDueDateCheckBox_Changed"
+                                  Unchecked="HasDueDateCheckBox_Changed"
+                                  VerticalAlignment="Center"/>
+                        <DatePicker x:Name="DueDatePicker"
+                                    DayFormat="{}{day.integer}日"
+                                    MonthFormat="{}{month.integer}月"
+                                    YearVisible="False"
+                                    Language="zh-CN"
+                                    MaxWidth="320"
+                                    HorizontalAlignment="Left"/>
+                    </StackPanel>
 
                     <TextBlock Grid.Row="3" Grid.Column="0" Text="优先级" VerticalAlignment="Center" FontWeight="SemiBold"/>
                     <ComboBox x:Name="PriorityComboBox"
@@ -89,12 +111,81 @@
                               HorizontalAlignment="Left"/>
 
                     <TextBlock Grid.Row="4" Grid.Column="0" Text="标签" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                    <TextBox x:Name="TagsTextBox"
-                             Grid.Row="4"
-                             Grid.Column="1"
-                             MaxWidth="620"
-                             HorizontalAlignment="Stretch"
-                             PlaceholderText="例如：学习,考试,紧急"/>
+                    <StackPanel Grid.Row="4"
+                                Grid.Column="1"
+                                Orientation="Vertical"
+                                Spacing="10"
+                                MaxWidth="620"
+                                HorizontalAlignment="Stretch">
+                        <!-- 全部标签：多选（预设 + 本地自定义） -->
+                        <muxc:ItemsRepeater x:Name="PresetTagsRepeater"
+                                            ItemsSource="{x:Bind TagOptionsForUi, Mode=OneWay}"
+                                            ElementPrepared="PresetTagsRepeater_ElementPrepared"
+                                            HorizontalAlignment="Left">
+                            <muxc:ItemsRepeater.Layout>
+                                <uihelpers:FlowWrapLayout HorizontalSpacing="8" VerticalSpacing="8"/>
+                            </muxc:ItemsRepeater.Layout>
+                            <muxc:ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <CheckBox Tag="{x:Bind Mode=OneWay}"
+                                              Checked="PresetTagCheckBox_Changed"
+                                              Unchecked="PresetTagCheckBox_Changed"
+                                              Background="Transparent"
+                                              BorderThickness="0"
+                                              Padding="0"
+                                              MinHeight="28"
+                                              VerticalAlignment="Center">
+                                        <Border CornerRadius="14"
+                                                Padding="10,5"
+                                                MinHeight="26"
+                                                HorizontalAlignment="Left"
+                                                Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneWay}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="1"
+                                                ToolTipService.ToolTip="{x:Bind Mode=OneWay}"
+                                                PointerEntered="PresetTagChip_PointerEntered"
+                                                PointerExited="PresetTagChip_PointerExited">
+                                            <Grid ColumnDefinitions="Auto,Auto"
+                                                  ColumnSpacing="6"
+                                                  VerticalAlignment="Center">
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{x:Bind Mode=OneWay}"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#FFFFFFFF"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           TextWrapping="NoWrap"
+                                                           MaxLines="1"
+                                                           VerticalAlignment="Center"/>
+                                                <!-- 删除当前 tag 预设 -->
+                                                <Button Grid.Column="1"
+                                                        Content="✕"
+                                                        FontSize="10"
+                                                        Padding="4,0"
+                                                        MinWidth="20"
+                                                        MinHeight="20"
+                                                        Background="Transparent"
+                                                        BorderThickness="0"
+                                                        Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                                        Tag="{x:Bind Mode=OneWay}"
+                                                        Click="PresetTagDeleteBtn_Click"
+                                                        Opacity="0"
+                                                        IsHitTestVisible="False"/>
+                                            </Grid>
+                                        </Border>
+                                    </CheckBox>
+                                </DataTemplate>
+                            </muxc:ItemsRepeater.ItemTemplate>
+                        </muxc:ItemsRepeater>
+
+                        <!-- 输入新标签，按回车后追加到预设列表并选中 -->
+                        <AutoSuggestBox x:Name="TagSuggestBox"
+                                         PlaceholderText="输入标签并回车添加（可多选）"
+                                         MinHeight="36"
+                                         HorizontalAlignment="Stretch"
+                                         QuerySubmitted="TagSuggestBox_QuerySubmitted"
+                                         SuggestionChosen="TagSuggestBox_SuggestionChosen"/>
+                    </StackPanel>
 
                     <TextBlock Grid.Row="5" Grid.Column="0" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold"/>
                     <CheckBox x:Name="CompletedCheckBox"

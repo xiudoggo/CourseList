@@ -40,6 +40,49 @@ namespace CourseList.Helpers
         }
 
         /// <summary>
+        /// 使用已索引化的 overrides（O(1) 查找）获取某周有效星期与节次。
+        /// </summary>
+        public static (DayOfWeek DayOfWeek, List<int> Periods) GetEffectiveSlot(
+            Course course,
+            int weekIndex,
+            IReadOnlyDictionary<(int courseId, int weekIndex), WeekScheduleOverride>? overrideIndex,
+            IReadOnlyList<WeekScheduleOverride>? overridesFallback = null)
+        {
+            if (overrideIndex != null &&
+                overrideIndex.TryGetValue((course.Id, weekIndex), out var o) &&
+                o != null)
+            {
+                var periods = (o.ClassPeriods ?? new List<int>())
+                    .Where(p => p >= 1)
+                    .Distinct()
+                    .OrderBy(p => p)
+                    .ToList();
+                return (o.DayOfWeek, periods);
+            }
+
+            return GetEffectiveSlot(course, weekIndex, overridesFallback);
+        }
+
+        public static Dictionary<(int courseId, int weekIndex), WeekScheduleOverride> BuildOverrideIndex(
+            IReadOnlyList<WeekScheduleOverride>? overrides)
+        {
+            var result = new Dictionary<(int courseId, int weekIndex), WeekScheduleOverride>();
+            if (overrides == null || overrides.Count == 0)
+                return result;
+
+            foreach (var o in overrides)
+            {
+                if (o == null)
+                    continue;
+                if (o.CourseId <= 0 || o.WeekIndex <= 0)
+                    continue;
+                result[(o.CourseId, o.WeekIndex)] = o;
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// 尝试将连续段移动到新星期、新起始节；返回新节次列表。若违反单周多段跨天约束则返回 null。
         /// </summary>
         public static List<int>? TryMoveSegment(

@@ -35,7 +35,7 @@ namespace CourseList.Views
         private ToDoItem? _dragPlaceholder;
         private Border? _dragGhost;
         private bool _gestureFinalized;
-        private Size _dragGhostCellSize = new(248, 184);
+        private Size _dragGhostCellSize = new(248, 200);
         private int _slotMoveDeferCount;
         private const double HitInflateX = 6;
         private const double HitInflateYTop = 4;
@@ -177,7 +177,6 @@ namespace CourseList.Views
 
             bool newValue = cb.IsChecked == true;
             item.Completed = newValue;
-            item.UpdatedAt = DateTime.Now;
             await SaveRealTodosAsync();
         }
 
@@ -195,7 +194,7 @@ namespace CourseList.Views
 
         private void ToDoCard_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (PointerEventOriginatedInCheckBox(e))
+            if (ShouldIgnoreTodoCardPress(e))
                 return;
             if (sender is not Border card || card.Tag is not ToDoItem todo || todo.IsDragPlaceholder)
                 return;
@@ -769,7 +768,7 @@ namespace CourseList.Views
                 return;
 
             double w = _dragGhostCellSize.Width > 1 ? _dragGhostCellSize.Width : 248;
-            double h = _dragGhostCellSize.Height > 1 ? _dragGhostCellSize.Height : 184;
+            double h = _dragGhostCellSize.Height > 1 ? _dragGhostCellSize.Height : 200;
 
             var ghost = new Border
             {
@@ -1119,14 +1118,125 @@ namespace CourseList.Views
             TodoSelectionTeachingTip.IsOpen = true;
         }
 
-        private static bool PointerEventOriginatedInCheckBox(PointerRoutedEventArgs e)
+        /// <summary>避免在 CheckBox、标签内按钮等子控件上按下时触发整张卡片的拖拽/选中手势。</summary>
+        private static bool ShouldIgnoreTodoCardPress(PointerRoutedEventArgs e)
         {
             for (var o = e.OriginalSource as DependencyObject; o != null; o = VisualTreeHelper.GetParent(o))
             {
-                if (o is CheckBox)
+                if (o is CheckBox or Button or ToggleButton or HyperlinkButton)
                     return true;
             }
             return false;
+        }
+
+        private static string? NormalizeTodoTag(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+            return raw.Trim().ToLowerInvariant();
+        }
+
+        private static ToDoItem? FindTodoItemOwningTagControl(FrameworkElement? fe)
+        {
+            for (var p = fe; p != null; p = VisualTreeHelper.GetParent(p) as FrameworkElement)
+            {
+                if (p is Border b && b.Tag is ToDoItem todo && !todo.IsDragPlaceholder)
+                    return todo;
+            }
+
+            return null;
+        }
+
+        private async Task<string?> PromptTagNameAsync(string title, string placeholder, string? initial)
+        {
+            var tb = new TextBox
+            {
+                Text = initial ?? string.Empty,
+                PlaceholderText = placeholder,
+                Width = 320
+            };
+            var dlg = new ContentDialog
+            {
+                Title = title,
+                Content = tb,
+                PrimaryButtonText = "确定",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = XamlRoot
+            };
+
+            var r = await dlg.ShowAsync();
+            if (r != ContentDialogResult.Primary)
+                return null;
+
+            return NormalizeTodoTag(tb.Text);
+        }
+
+        private async void TodoTagDelete_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button btn || btn.Tag is not string tagRaw)
+                return;
+            var todo = FindTodoItemOwningTagControl(btn);
+            if (todo == null)
+                return;
+
+            var norm = NormalizeTodoTag(tagRaw);
+            if (norm == null)
+                return;
+
+            int removed = todo.Tags.RemoveAll(t => string.Equals(NormalizeTodoTag(t), norm, StringComparison.Ordinal));
+            if (removed == 0)
+                return;
+
+            todo.NotifyTagsChanged();
+            await SaveRealTodosAsync();
+        }
+
+        private async void TodoTagEdit_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button btn || btn.Tag is not string oldRaw)
+                return;
+            var todo = FindTodoItemOwningTagControl(btn);
+            if (todo == null)
+                return;
+
+            var oldNorm = NormalizeTodoTag(oldRaw);
+            if (oldNorm == null)
+                return;
+
+            var newNorm = await PromptTagNameAsync("修改标签", "输入新标签", oldNorm);
+            if (string.IsNullOrEmpty(newNorm) || newNorm == oldNorm)
+                return;
+
+            int idx = todo.Tags.FindIndex(t => string.Equals(NormalizeTodoTag(t), oldNorm, StringComparison.Ordinal));
+            if (idx < 0)
+                return;
+
+            if (todo.Tags.Any(t => string.Equals(NormalizeTodoTag(t), newNorm, StringComparison.Ordinal)))
+                todo.Tags.RemoveAt(idx);
+            else
+                todo.Tags[idx] = newNorm;
+
+            todo.NotifyTagsChanged();
+            await SaveRealTodosAsync();
+        }
+
+        private async void TodoCardAddTag_Click(object sender, RoutedEventArgs e)
+        {
+            var todo = FindTodoItemOwningTagControl(sender as FrameworkElement);
+            if (todo == null)
+                return;
+
+            var newNorm = await PromptTagNameAsync("添加标签", "输入新标签", null);
+            if (string.IsNullOrEmpty(newNorm))
+                return;
+
+            if (todo.Tags.Any(t => string.Equals(NormalizeTodoTag(t), newNorm, StringComparison.Ordinal)))
+                return;
+
+            todo.Tags.Add(newNorm);
+            todo.NotifyTagsChanged();
+            await SaveRealTodosAsync();
         }
 
         private void ToDoCard_PointerEntered(object sender, PointerRoutedEventArgs e)
