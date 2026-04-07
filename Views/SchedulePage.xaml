@@ -129,6 +129,14 @@
                     </StackPanel>
                 </Border>
 
+                <!-- 桌面模式课程块承载层：由代码设置 RowSpan/ColumnSpan 与实际尺寸 -->
+                <Canvas x:Name="DesktopBlocksCanvas"
+                        Grid.Row="1"
+                        Grid.Column="1"
+                        IsHitTestVisible="True"
+                        Background="Transparent"
+                        PointerPressed="DesktopBlocksCanvas_PointerPressed" />
+
                 <!-- 节次标题与课程单元格将通过代码生成 -->
                 </Grid>
             </ScrollViewer>

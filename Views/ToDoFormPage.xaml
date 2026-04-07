@@ -127,7 +127,7 @@
                             </muxc:ItemsRepeater.Layout>
                             <muxc:ItemsRepeater.ItemTemplate>
                                 <DataTemplate x:DataType="x:String">
-                                    <CheckBox Tag="{x:Bind Mode=OneWay}"
+                                    <CheckBox Tag="{x:Bind Mode=OneTime}"
                                               Checked="PresetTagCheckBox_Changed"
                                               Unchecked="PresetTagCheckBox_Changed"
                                               Background="Transparent"
@@ -139,17 +139,17 @@
                                                 Padding="10,5"
                                                 MinHeight="26"
                                                 HorizontalAlignment="Left"
-                                                Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneWay}"
+                                                Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneTime}"
                                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                                 BorderThickness="1"
-                                                ToolTipService.ToolTip="{x:Bind Mode=OneWay}"
+                                                ToolTipService.ToolTip="{x:Bind Mode=OneTime}"
                                                 PointerEntered="PresetTagChip_PointerEntered"
                                                 PointerExited="PresetTagChip_PointerExited">
                                             <Grid ColumnDefinitions="Auto,Auto"
                                                   ColumnSpacing="6"
                                                   VerticalAlignment="Center">
                                                 <TextBlock Grid.Column="0"
-                                                           Text="{x:Bind Mode=OneWay}"
+                                                           Text="{x:Bind Mode=OneTime}"
                                                            FontSize="11"
                                                            FontWeight="SemiBold"
                                                            Foreground="#FFFFFFFF"
@@ -167,7 +167,7 @@
                                                         Background="Transparent"
                                                         BorderThickness="0"
                                                         Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                                        Tag="{x:Bind Mode=OneWay}"
+                                                        Tag="{x:Bind Mode=OneTime}"
                                                         Click="PresetTagDeleteBtn_Click"
                                                         Opacity="0"
                                                         IsHitTestVisible="False"/>

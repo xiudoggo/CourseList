@@ -102,11 +102,11 @@
                                             Padding="8,3"
                                             HorizontalAlignment="Left"
                                             MaxWidth="280"
-                                            Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneWay}"
+                                            Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneTime}"
                                             BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
                                             BorderThickness="1"
-                                            ToolTipService.ToolTip="{x:Bind Mode=OneWay}">
-                                        <TextBlock Text="{x:Bind Mode=OneWay}"
+                                            ToolTipService.ToolTip="{x:Bind Mode=OneTime}">
+                                        <TextBlock Text="{x:Bind Mode=OneTime}"
                                                    FontSize="11"
                                                    FontWeight="SemiBold"
                                                    Foreground="#FFFFFFFF"
@@ -135,7 +135,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,16" ColumnDefinitions="*,Auto,Auto,Auto">
+        <Grid Grid.Row="0" Margin="0,0,0,0" ColumnDefinitions="*,Auto,Auto,Auto">
             <TextBlock Grid.Column="0"
                        Text="📋 待办"
                        FontSize="28"
@@ -185,16 +185,19 @@
             <ScrollViewer x:Name="ToDoScrollViewer"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
-                <muxc:ItemsRepeater x:Name="ToDoRepeater"
-                                    ItemTemplate="{StaticResource ToDoCardTemplate}">
-                    <muxc:ItemsRepeater.Layout>
-                        <muxc:UniformGridLayout MinItemWidth="220"
-                                                MinItemHeight="180"
-                                                MinColumnSpacing="12"
-                                                MinRowSpacing="12"
-                                                ItemsStretch="Fill"/>
-                    </muxc:ItemsRepeater.Layout>
-                </muxc:ItemsRepeater>
+                <!-- 顶部留白：首行卡片 hover 上移 + 缩放时仍落在可绘区域内，避免上边框被 ScrollViewer 裁切 -->
+                <Grid Padding="0,16,0,0">
+                    <muxc:ItemsRepeater x:Name="ToDoRepeater"
+                                        ItemTemplate="{StaticResource ToDoCardTemplate}">
+                        <muxc:ItemsRepeater.Layout>
+                            <muxc:UniformGridLayout MinItemWidth="220"
+                                                    MinItemHeight="180"
+                                                    MinColumnSpacing="12"
+                                                    MinRowSpacing="12"
+                                                    ItemsStretch="Fill"/>
+                        </muxc:ItemsRepeater.Layout>
+                    </muxc:ItemsRepeater>
+                </Grid>
             </ScrollViewer>
             <TextBlock x:Name="ToDoEmptyText"
                        Text="还没有待办，点击“新增”创建"

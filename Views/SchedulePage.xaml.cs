@@ -29,8 +29,7 @@ namespace CourseList.Views
         private const double CourseContentWidth = 135;
 
         private List<Course> _courses = new List<Course>();
-        private Dictionary<(int day, int period), Border> _cellMap = new();
-        private bool _isScheduleGridInitialized = false;
+        private List<ScheduleBlock> _blocks = new List<ScheduleBlock>();
         // 5=周一到周五；7=周一到周日
         private int _scheduleWeekRange = 7;
         private int _periodCount = 11;
@@ -42,10 +41,9 @@ namespace CourseList.Views
         private bool _isCompactMode;
         private bool _isPageLoaded;
 
-        // 竖版“小窗”渲染时的单元格映射：day=1..N(周一到周日/工作日)，period=1.._periodCount
-        private readonly Dictionary<(int day, int period), Border> _compactCellMap = new();
-        private readonly Dictionary<Border, (int dayCol, int period)> _compactBorderIndexMap = new();
+        // Compact: per-day canvas containers
         private readonly Dictionary<int, TextBlock> _compactDayHeaderDateTextByCol = new();
+        private readonly Dictionary<int, Canvas> _compactDayCanvasByCol = new();
         private const double CompactTimeColumnWidth = 46;
         private const double CompactPeriodRowHeight = 56;
 
@@ -62,8 +60,7 @@ namespace CourseList.Views
         private static readonly SolidColorBrush WhiteBrush = new SolidColorBrush(Colors.White);
         private readonly Dictionary<string, SolidColorBrush> _courseBrushCache = new Dictionary<string, SolidColorBrush>(StringComparer.OrdinalIgnoreCase);
 
-        private Canvas? _scheduleDragOverlay;
-        private Rectangle? _scheduleDragPreviewRect;
+        private Rectangle? _desktopDragPreviewRect;
         private Border? _dragSourceBorder;
         private double _dragSourceOpacity = 1;
         private double _dragSourceScaleX = 0.95;
@@ -71,7 +68,7 @@ namespace CourseList.Views
 
         // 小窗（compact）模式：单独的虚线落点预览层（不能复用 desktop 的 ScheduleGrid 坐标系）
         private Rectangle? _compactDragPreviewRect;
-        private Grid? _compactDragPreviewCurrentDayGrid;
+        private Canvas? _compactDragPreviewCurrentDayCanvas;
 
         /// <summary>拖拽过程中对连续行坐标 fr 做低通平滑，减轻虚线框在节次缝隙处抖动。</summary>
         private double _dragRowSmoothFr = double.NaN;
@@ -317,13 +314,138 @@ namespace CourseList.Views
 
         private void WireScheduleGridDragSurface()
         {
-            ScheduleGrid.AllowDrop = true;
-            ScheduleGrid.DragOver -= ScheduleGrid_DragOver;
-            ScheduleGrid.DragOver += ScheduleGrid_DragOver;
-            ScheduleGrid.Drop -= ScheduleGrid_Drop;
-            ScheduleGrid.Drop += ScheduleGrid_Drop;
-            ScheduleGrid.DragLeave -= ScheduleGrid_DragLeave;
-            ScheduleGrid.DragLeave += ScheduleGrid_DragLeave;
+            // Drag/Drop surface moved to DesktopBlocksCanvas (desktop) and per-day Canvas (compact).
+            if (ScheduleGrid != null)
+            {
+                ScheduleGrid.AllowDrop = false;
+            }
+
+            if (DesktopBlocksCanvas != null)
+            {
+                DesktopBlocksCanvas.AllowDrop = true;
+                DesktopBlocksCanvas.DragOver -= DesktopBlocksCanvas_DragOver;
+                DesktopBlocksCanvas.DragOver += DesktopBlocksCanvas_DragOver;
+                DesktopBlocksCanvas.Drop -= DesktopBlocksCanvas_Drop;
+                DesktopBlocksCanvas.Drop += DesktopBlocksCanvas_Drop;
+                DesktopBlocksCanvas.DragLeave -= DesktopBlocksCanvas_DragLeave;
+                DesktopBlocksCanvas.DragLeave += DesktopBlocksCanvas_DragLeave;
+            }
+        }
+
+        private void DesktopBlocksCanvas_DragLeave(object sender, DragEventArgs e)
+        {
+            ResetDragRowSmoothFr();
+            ClearDesktopDragPreview();
+        }
+
+        private void DesktopBlocksCanvas_DragOver(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            if (e.DataView?.Properties == null || !e.DataView.Properties.ContainsKey(DragPayloadKey))
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+                ClearDesktopDragPreview();
+                return;
+            }
+
+            e.AcceptedOperation = DataPackageOperation.Move;
+
+            if (!TryParseDragPayload(e, out _, out _, out _, out int span))
+            {
+                ClearDesktopDragPreview();
+                return;
+            }
+
+            var pos = e.GetPosition(DesktopBlocksCanvas);
+            if (!TryResolveDesktopDropPlacement(pos, span, out int dayCol, out int startRow, isDragOver: true))
+            {
+                ClearDesktopDragPreview();
+                return;
+            }
+
+            UpdateDesktopDragPreview(dayCol, startRow, span);
+        }
+
+        private async void DesktopBlocksCanvas_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            ClearDesktopDragPreview();
+
+            if (e.DataView?.Properties == null ||
+                !TryParseDragPayload(e, out int courseId, out int segStart, out int segEnd, out int span, out _))
+            {
+                ResetDragRowSmoothFr();
+                return;
+            }
+
+            var pos = e.GetPosition(DesktopBlocksCanvas);
+            if (!TryResolveDesktopDropPlacement(pos, span, out int targetCol, out int targetRow, isDragOver: false))
+            {
+                ResetDragRowSmoothFr();
+                return;
+            }
+
+            ResetDragRowSmoothFr();
+            await ProcessScheduleDropAsync(courseId, segStart, segEnd, targetCol, targetRow);
+        }
+
+        private bool TryResolveDesktopDropPlacement(Point positionInCanvas, int span, out int dayCol, out int startRow, bool isDragOver)
+        {
+            dayCol = 1;
+            startRow = 1;
+            span = Math.Max(1, span);
+
+            int dc = _scheduleWeekRange == 5 ? 5 : 7;
+            double totalW = DesktopBlocksCanvas?.ActualWidth ?? 0;
+            if (totalW < 8 || dc <= 0)
+                return false;
+
+            // dayCol by x proportion (Canvas spans only day columns)
+            double x = positionInCanvas.X;
+            if (x < 0 || x > totalW)
+                return false;
+            double cellW = totalW / dc;
+            dayCol = Math.Clamp((int)(x / cellW) + 1, 1, dc);
+
+            double rowH = GetDesktopRowHeight();
+            double frRaw = 1.0 + positionInCanvas.Y / Math.Max(8, rowH);
+            frRaw = Math.Clamp(frRaw, 1.0, _periodCount + 1.0 - 1e-6);
+
+            double fr = GetFrForPlacement(frRaw, isDragOver);
+            startRow = ResolveStartRowFromFr(fr, span);
+
+            int maxStart = _periodCount - span + 1;
+            if (maxStart < 1)
+                return false;
+            startRow = Math.Clamp(startRow, 1, maxStart);
+            return true;
+        }
+
+        private void UpdateDesktopDragPreview(int dayCol, int startRow, int span)
+        {
+            if (DesktopBlocksCanvas == null || _desktopDragPreviewRect == null)
+                return;
+
+            int dc = _scheduleWeekRange == 5 ? 5 : 7;
+            double w = DesktopBlocksCanvas.ActualWidth;
+            double h = DesktopBlocksCanvas.ActualHeight;
+            if (w < 8 || h < 8)
+                return;
+
+            double cellW = w / dc;
+            double cellH = GetDesktopRowHeight();
+
+            Canvas.SetLeft(_desktopDragPreviewRect, (dayCol - 1) * cellW + 2);
+            Canvas.SetTop(_desktopDragPreviewRect, (startRow - 1) * cellH + 2);
+            _desktopDragPreviewRect.Width = Math.Max(8, cellW - 4);
+            _desktopDragPreviewRect.Height = Math.Max(8, cellH * span - 4);
+            _desktopDragPreviewRect.Visibility = Visibility.Visible;
+        }
+
+        private void ClearDesktopDragPreview()
+        {
+            if (_desktopDragPreviewRect != null)
+                _desktopDragPreviewRect.Visibility = Visibility.Collapsed;
         }
 
 
@@ -332,6 +454,19 @@ namespace CourseList.Views
             _courses = await CourseDataHelper.LoadCoursesAsync();
             _weekOverrides = await WeekScheduleOverrideHelper.LoadAsync();
             _weekOverrideIndex = ScheduleEffectiveHelper.BuildOverrideIndex(_weekOverrides);
+            RebuildBlocks();
+        }
+
+        private void RebuildBlocks()
+        {
+            _blocks = ScheduleBlockBuilder.BuildBlocks(
+                _courses,
+                _displayWeek,
+                _periodCount,
+                _scheduleWeekRange,
+                _semesterTotalWeeks,
+                _weekOverrideIndex,
+                _weekOverrides);
         }
 
         private void BuildScheduleGrid()
@@ -344,33 +479,508 @@ namespace CourseList.Views
 
         private void BuildDesktopScheduleGrid()
         {
-            EnsureScheduleGridInitialized();
-            ClearAllCourseCells();
+            EnsureDesktopCanvasInitialized();
             UpdateHeaderDates();
 
-            // 填充课程（只更新内容，不重建单元格）
-            foreach (var course in _courses)
-            {
-                ApplyCourseToCells(course);
-            }
-
-            BringScheduleDragOverlayToTop();
+            RebuildBlocks();
+            RenderDesktopBlocks();
             UpdateWeekNavigationUi();
         }
 
         private void BuildCompactScheduleGrid()
         {
             EnsureCompactScheduleInitialized();
-            ClearAllCourseCellsCompact();
             UpdateCompactTimeAxis();
             UpdateCompactHeaderDates();
 
-            foreach (var course in _courses)
-            {
-                ApplyCourseToCompactCells(course);
-            }
+            RebuildBlocks();
+            RenderCompactBlocks();
 
             UpdateWeekNavigationUi();
+        }
+
+        private void EnsureDesktopCanvasInitialized()
+        {
+            if (DesktopBlocksCanvas == null)
+                return;
+
+            int dayColCount = _scheduleWeekRange == 5 ? 5 : 7;
+            Grid.SetRow(DesktopBlocksCanvas, 1);
+            Grid.SetColumn(DesktopBlocksCanvas, 1);
+            Grid.SetRowSpan(DesktopBlocksCanvas, _periodCount);
+            Grid.SetColumnSpan(DesktopBlocksCanvas, dayColCount);
+
+            if (_desktopDragPreviewRect == null)
+            {
+                _desktopDragPreviewRect = new Rectangle
+                {
+                    Stroke = new SolidColorBrush(Color.FromArgb(220, 0, 120, 215)),
+                    StrokeThickness = 2,
+                    Fill = new SolidColorBrush(Color.FromArgb(35, 0, 120, 215)),
+                    StrokeDashArray = new DoubleCollection { 5, 4 },
+                    IsHitTestVisible = false,
+                    Visibility = Visibility.Collapsed
+                };
+                DesktopBlocksCanvas.Children.Add(_desktopDragPreviewRect);
+            }
+        }
+
+        private double GetDesktopRowHeight()
+        {
+            try
+            {
+                if (ScheduleGrid?.RowDefinitions != null && ScheduleGrid.RowDefinitions.Count > 1)
+                {
+                    double h = ScheduleGrid.RowDefinitions[1].ActualHeight;
+                    if (!double.IsNaN(h) && h >= 8)
+                        return h;
+                }
+            }
+            catch { }
+            return 90;
+        }
+
+        private double GetDesktopDayColumnWidth(int dayCol)
+        {
+            // dayCol: 1..N maps to ScheduleGrid ColumnDefinitions[dayCol]
+            try
+            {
+                if (ScheduleGrid?.ColumnDefinitions != null && ScheduleGrid.ColumnDefinitions.Count > dayCol)
+                {
+                    double w = ScheduleGrid.ColumnDefinitions[dayCol].ActualWidth;
+                    if (!double.IsNaN(w) && w >= 8)
+                        return w;
+                }
+            }
+            catch { }
+            return DayColumnMinWidth;
+        }
+
+        private double GetDesktopDayColumnLeft(int dayCol)
+        {
+            // within DesktopBlocksCanvas coordinate system (origin at dayCol=1 start)
+            double x = 0;
+            try
+            {
+                if (ScheduleGrid?.ColumnDefinitions == null)
+                    return x;
+
+                for (int c = 1; c < dayCol; c++)
+                {
+                    double w = ScheduleGrid.ColumnDefinitions.Count > c ? ScheduleGrid.ColumnDefinitions[c].ActualWidth : DayColumnMinWidth;
+                    if (w < 1) w = DayColumnMinWidth;
+                    x += w;
+                }
+            }
+            catch { }
+            return x;
+        }
+
+        private void RenderDesktopBlocks()
+        {
+            if (DesktopBlocksCanvas == null)
+                return;
+
+            // preserve preview rect (always last in z-order)
+            var preview = _desktopDragPreviewRect;
+            DesktopBlocksCanvas.Children.Clear();
+            if (preview != null)
+            {
+                preview.Visibility = Visibility.Collapsed;
+                DesktopBlocksCanvas.Children.Add(preview);
+            }
+
+            _selectionOverlayMap.Clear();
+            _selectedCourseBorder = null;
+            SelectedCourse = null;
+
+            int dayColCount = _scheduleWeekRange == 5 ? 5 : 7;
+            double rowH = GetDesktopRowHeight();
+
+            foreach (var block in _blocks)
+            {
+                if (block.DayCol < 1 || block.DayCol > dayColCount)
+                    continue;
+
+                double colW = GetDesktopDayColumnWidth(block.DayCol);
+                double left = GetDesktopDayColumnLeft(block.DayCol);
+                double top = (block.StartPeriod - 1) * rowH;
+                double height = block.Span * rowH;
+
+                const double inset = 6;
+                double w = Math.Max(24, colW - inset * 2);
+                double h = Math.Max(18, height - inset * 2);
+
+                var border = CreateCourseBlockElement(block, w, h, fontSizeTitle: 16, fontSizeSub: 14);
+                Canvas.SetLeft(border, left + inset);
+                Canvas.SetTop(border, top + inset);
+                DesktopBlocksCanvas.Children.Add(border);
+            }
+        }
+
+        private Border CreateCourseBlockElement(ScheduleBlock block, double width, double height, double fontSizeTitle, double fontSizeSub)
+        {
+            var course = block.CourseRef;
+            var courseBrush = GetCourseBrush(course.Color);
+            double opacity = block.IsActiveInWeek ? 1.0 : 0.35;
+
+            var rootBorder = new Border
+            {
+                Width = width,
+                Height = height,
+                CornerRadius = new CornerRadius(6),
+                Background = courseBrush,
+                Opacity = opacity,
+                Tag = block,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new ScaleTransform { ScaleX = 0.95, ScaleY = 0.95 },
+                IsHitTestVisible = true,
+                CanDrag = block.IsActiveInWeek,
+                AllowDrop = false
+            };
+
+            rootBorder.PointerPressed += CourseBlock_PointerPressed;
+            rootBorder.DoubleTapped += CourseBlock_DoubleTapped;
+            rootBorder.DragStarting += CourseBlock_DragStarting;
+            rootBorder.DropCompleted += ScheduleCell_DropCompleted;
+
+            var grid = new Grid();
+            var sp = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Spacing = 2,
+                Margin = new Thickness(6, 4, 6, 4)
+            };
+
+            sp.Children.Add(new TextBlock
+            {
+                Text = course.Name,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = WhiteBrush,
+                FontSize = fontSizeTitle,
+                FontWeight = FontWeights.SemiBold
+            });
+
+            sp.Children.Add(new TextBlock
+            {
+                Text = course.Teacher,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = WhiteBrush,
+                FontSize = fontSizeSub
+            });
+
+            sp.Children.Add(new TextBlock
+            {
+                Text = course.Classroom,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = WhiteBrush,
+                FontSize = fontSizeSub
+            });
+
+            if (!block.IsActiveInWeek)
+            {
+                sp.Children.Add(new TextBlock
+                {
+                    Text = "（非本周）",
+                    TextWrapping = TextWrapping.NoWrap,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Foreground = WhiteBrush,
+                    FontSize = Math.Max(10, fontSizeSub - 2),
+                    FontWeight = FontWeights.SemiBold
+                });
+            }
+
+            grid.Children.Add(sp);
+
+            var overlay = new Border
+            {
+                IsHitTestVisible = false,
+                CornerRadius = rootBorder.CornerRadius,
+                BorderThickness = new Thickness(2),
+                BorderBrush = new SolidColorBrush(Colors.Transparent),
+                Opacity = 0,
+                Margin = new Thickness(-2)
+            };
+            grid.Children.Add(overlay);
+            _selectionOverlayMap[rootBorder] = overlay;
+
+            rootBorder.Child = grid;
+
+            if (block.IsActiveInWeek)
+                _courseCellMap[rootBorder] = course;
+
+            return rootBorder;
+        }
+
+        private void DesktopBlocksCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.OriginalSource is DependencyObject source)
+            {
+                var border = FindParentCourseBorder(source);
+                if (border != null && _selectionOverlayMap.ContainsKey(border))
+                    return;
+            }
+
+            ClearCourseSelection();
+        }
+
+        private void CourseBlock_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is not Border border || border.Tag is not ScheduleBlock block)
+                return;
+
+            SelectCourse(block.CourseRef, border);
+        }
+
+        private async void CourseBlock_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            if (sender is not Border border || border.Tag is not ScheduleBlock block)
+                return;
+
+            SelectedCourse = block.CourseRef;
+            await EditCourseByCellAsync(block.CourseRef);
+        }
+
+        private void CourseBlock_DragStarting(UIElement sender, DragStartingEventArgs e)
+        {
+            if (sender is not Border border || border.Tag is not ScheduleBlock block)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            int start = block.StartPeriod;
+            int span = Math.Max(1, block.Span);
+            int end = start + span - 1;
+
+            e.Data.Properties[DragPayloadKey] = $"{block.CourseId}|{start}|{end}|{span}|{block.DayCol}";
+            e.Data.RequestedOperation = DataPackageOperation.Move;
+
+            _dragSourceBorder = border;
+            _dragSourceOpacity = border.Opacity;
+            if (border.RenderTransform is ScaleTransform st)
+            {
+                _dragSourceScaleX = st.ScaleX;
+                _dragSourceScaleY = st.ScaleY;
+            }
+
+            _dragRowSmoothFr = double.NaN;
+            AnimateDragSourceLift(border, lifting: true);
+        }
+
+        private static bool TryParseDragPayload(DragEventArgs e, out int courseId, out int segStart, out int segEnd, out int span, out int dayCol)
+        {
+            courseId = segStart = segEnd = span = dayCol = 0;
+            if (e.DataView?.Properties == null ||
+                !e.DataView.Properties.TryGetValue(DragPayloadKey, out var raw) ||
+                raw is not string payload)
+                return false;
+
+            var parts = payload.Split('|');
+            if (parts.Length >= 5 &&
+                int.TryParse(parts[0], out courseId) &&
+                int.TryParse(parts[1], out segStart) &&
+                int.TryParse(parts[2], out segEnd) &&
+                int.TryParse(parts[3], out span) &&
+                int.TryParse(parts[4], out dayCol))
+                return true;
+
+            // fallback to legacy formats
+            if (parts.Length >= 4 &&
+                int.TryParse(parts[0], out courseId) &&
+                int.TryParse(parts[1], out segStart) &&
+                int.TryParse(parts[2], out segEnd) &&
+                int.TryParse(parts[3], out span))
+            {
+                dayCol = 0;
+                return true;
+            }
+
+            return false;
+        }
+
+        private void RenderCompactBlocks()
+        {
+            _courseCellMap.Clear();
+
+            // clear canvases, keep preview rect only when needed
+            foreach (var kv in _compactDayCanvasByCol)
+            {
+                var canvas = kv.Value;
+                canvas.Children.Clear();
+            }
+
+            _selectionOverlayMap.Clear();
+            _selectedCourseBorder = null;
+            SelectedCourse = null;
+
+            int dayColCount = _scheduleWeekRange == 5 ? 5 : 7;
+            double rowH = CompactPeriodRowHeight;
+
+            foreach (var block in _blocks)
+            {
+                if (block.DayCol < 1 || block.DayCol > dayColCount)
+                    continue;
+                if (!_compactDayCanvasByCol.TryGetValue(block.DayCol, out var canvas))
+                    continue;
+
+                double top = (block.StartPeriod - 1) * rowH;
+                double height = block.Span * rowH;
+                const double inset = 4;
+                double w = Math.Max(30, _compactDayColumnWidth - inset * 2);
+                double h = Math.Max(18, height - inset * 2);
+
+                var border = CreateCourseBlockElement(block, w, h, fontSizeTitle: 13, fontSizeSub: 11);
+                Canvas.SetLeft(border, inset);
+                Canvas.SetTop(border, top + inset);
+                canvas.Children.Add(border);
+            }
+        }
+
+        private void CompactDayCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.OriginalSource is DependencyObject source)
+            {
+                var border = FindParentCourseBorder(source);
+                if (border != null && _selectionOverlayMap.ContainsKey(border))
+                    return;
+            }
+            ClearCourseSelection();
+        }
+
+        private void CompactDayCanvas_DragLeave(object sender, DragEventArgs e)
+        {
+            ResetDragRowSmoothFr();
+            ClearCompactDragPreview();
+        }
+
+        private void CompactDayCanvas_DragOver(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+
+            if (e.DataView?.Properties == null || !e.DataView.Properties.ContainsKey(DragPayloadKey))
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+                ClearCompactDragPreview();
+                return;
+            }
+
+            if (sender is not Canvas dayCanvas || dayCanvas.Tag is not int dayCol || dayCol < 1)
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+                ClearCompactDragPreview();
+                return;
+            }
+
+            if (!TryParseDragPayload(e, out _, out _, out _, out int span))
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+                ClearCompactDragPreview();
+                return;
+            }
+
+            e.AcceptedOperation = DataPackageOperation.Move;
+
+            var localPos = e.GetPosition(dayCanvas);
+            double frRaw = 1.0 + localPos.Y / Math.Max(8, CompactPeriodRowHeight);
+            frRaw = Math.Clamp(frRaw, 1.0, _periodCount + 1.0 - 1e-6);
+
+            double fr = GetFrForPlacement(frRaw, isDragOver: true);
+            int startRow = ResolveStartRowFromFr(fr, span);
+            int maxStart = _periodCount - span + 1;
+            if (maxStart < 1)
+            {
+                ClearCompactDragPreview();
+                return;
+            }
+            startRow = Math.Clamp(startRow, 1, maxStart);
+            UpdateCompactDragPreview(dayCanvas, dayCol, startRow, span);
+        }
+
+        private async void CompactDayCanvas_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+
+            if (sender is not Canvas dayCanvas || dayCanvas.Tag is not int dayCol || dayCol < 1)
+            {
+                ResetDragRowSmoothFr();
+                ClearCompactDragPreview();
+                return;
+            }
+
+            if (e.DataView?.Properties == null ||
+                !TryParseDragPayload(e, out int courseId, out int segStart, out int segEnd, out int span, out _))
+            {
+                ResetDragRowSmoothFr();
+                ClearCompactDragPreview();
+                return;
+            }
+
+            ClearCompactDragPreview();
+
+            var localPos = e.GetPosition(dayCanvas);
+            double frRaw = 1.0 + localPos.Y / Math.Max(8, CompactPeriodRowHeight);
+            frRaw = Math.Clamp(frRaw, 1.0, _periodCount + 1.0 - 1e-6);
+
+            double fr = GetFrForPlacement(frRaw, isDragOver: false);
+            int targetRow = ResolveStartRowFromFr(fr, span);
+            int maxStart = _periodCount - span + 1;
+            if (maxStart < 1)
+            {
+                ResetDragRowSmoothFr();
+                return;
+            }
+            targetRow = Math.Clamp(targetRow, 1, maxStart);
+
+            ResetDragRowSmoothFr();
+            await ProcessScheduleDropAsync(courseId, segStart, segEnd, dayCol, targetRow);
+        }
+
+        private void UpdateCompactDragPreview(Canvas dayCanvas, int dayCol, int startRow, int span)
+        {
+            if (_compactDragPreviewRect == null)
+            {
+                _compactDragPreviewRect = new Rectangle
+                {
+                    Stroke = new SolidColorBrush(Color.FromArgb(220, 0, 120, 215)),
+                    StrokeThickness = 2,
+                    Fill = new SolidColorBrush(Color.FromArgb(35, 0, 120, 215)),
+                    StrokeDashArray = new DoubleCollection { 5, 4 },
+                    IsHitTestVisible = false,
+                    Visibility = Visibility.Collapsed
+                };
+            }
+
+            if (!ReferenceEquals(_compactDragPreviewCurrentDayCanvas, dayCanvas))
+            {
+                if (_compactDragPreviewRect.Parent is Panel p)
+                    p.Children.Remove(_compactDragPreviewRect);
+                dayCanvas.Children.Add(_compactDragPreviewRect);
+                _compactDragPreviewCurrentDayCanvas = dayCanvas;
+            }
+
+            double rowH = CompactPeriodRowHeight;
+            const double inset = 4;
+            Canvas.SetLeft(_compactDragPreviewRect, inset);
+            Canvas.SetTop(_compactDragPreviewRect, (startRow - 1) * rowH + inset);
+            _compactDragPreviewRect.Width = Math.Max(8, _compactDayColumnWidth - inset * 2);
+            _compactDragPreviewRect.Height = Math.Max(8, span * rowH - inset * 2);
+            _compactDragPreviewRect.Visibility = Visibility.Visible;
+        }
+
+        private void ClearCompactDragPreview()
+        {
+            if (_compactDragPreviewRect != null)
+                _compactDragPreviewRect.Visibility = Visibility.Collapsed;
+            _compactDragPreviewCurrentDayCanvas = null;
         }
 
         private void EnsureCompactScheduleInitialized()
@@ -378,16 +988,15 @@ namespace CourseList.Views
             // 每次切换周次/模式时重建紧凑布局，避免旧尺寸/映射残留。
             CompactTimePanel.Children.Clear();
             CompactDaysPanel.Children.Clear();
-            _compactCellMap.Clear();
-            _compactBorderIndexMap.Clear();
-            ClearCompactDragPreview();
             _compactDayHeaderDateTextByCol.Clear();
+            _compactDayCanvasByCol.Clear();
+            ClearCompactDragPreview();
 
-            // 计算显示天数
             bool showWeekend = _scheduleWeekRange == 7;
             int dayColumnCount = showWeekend ? 7 : 5; // col=1..N
 
-            // 创建按天列（每列底部是 period grid）
+            double dayCanvasHeight = _periodCount * CompactPeriodRowHeight;
+
             for (int dayCol = 1; dayCol <= dayColumnCount; dayCol++)
             {
                 var columnRoot = new StackPanel
@@ -396,7 +1005,6 @@ namespace CourseList.Views
                     Width = _compactDayColumnWidth
                 };
 
-                // Day header
                 var header = new StackPanel
                 {
                     Orientation = Orientation.Vertical,
@@ -431,73 +1039,25 @@ namespace CourseList.Views
                 };
                 header.Children.Add(dateText);
                 _compactDayHeaderDateTextByCol[dayCol] = dateText;
-
                 columnRoot.Children.Add(header);
 
-                // period grid
-                var dayGrid = new Grid
+                var dayCanvas = new Canvas
                 {
-                    RowSpacing = 0,
-                    ColumnSpacing = 0,
-                    Margin = new Thickness(0, 6, 0, 0)
+                    Width = _compactDayColumnWidth,
+                    Height = dayCanvasHeight,
+                    Background = TransparentBrush,
+                    Margin = new Thickness(0, 6, 0, 0),
+                    AllowDrop = true,
+                    Tag = dayCol
                 };
+                dayCanvas.DragOver += CompactDayCanvas_DragOver;
+                dayCanvas.Drop += CompactDayCanvas_Drop;
+                dayCanvas.DragLeave += CompactDayCanvas_DragLeave;
+                dayCanvas.PointerPressed += CompactDayCanvas_PointerPressed;
 
-                for (int r = 0; r < _periodCount; r++)
-                    dayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(CompactPeriodRowHeight) });
-
-                for (int period = 1; period <= _periodCount; period++)
-                {
-                    var border = new Border
-                    {
-                        CornerRadius = new CornerRadius(6),
-                        // 只保留左右边界缝隙，不做列间明显留白
-                        Margin = new Thickness(1, 0, 1, 0),
-                        Background = TransparentBrush,
-                        BorderBrush = null,
-                        BorderThickness = new Thickness(0),
-                        Opacity = 1.0,
-                        Visibility = Visibility.Visible,
-                        IsHitTestVisible = true,
-                        RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
-                        RenderTransform = new ScaleTransform { ScaleX = 0.95, ScaleY = 0.95 }
-                    };
-
-                    border.PointerPressed += CourseCell_PointerPressed;
-                    border.DoubleTapped += CourseCell_DoubleTapped;
-                    // 紧凑模式下拖拽完全依赖每个卡片自身的 DragStarting/Drop 事件
-                    // （避免使用 desktop 的 ScheduleGrid 坐标系导致小窗无法命中/计算错位）
-                    border.CanDrag = false; // 默认先禁用，按课程是否“本周生效”在 ApplyCourseToCompactCells 中开启
-                    border.AllowDrop = true;
-                    border.DragStarting += CompactCell_DragStarting;
-                    border.DropCompleted += ScheduleCell_DropCompleted;
-                    border.DragOver += CompactCell_DragOver;
-                    border.Drop += CompactCell_DropForward;
-
-                    Grid.SetRow(border, period - 1);
-                    dayGrid.Children.Add(border);
-                    _compactCellMap[(dayCol, period)] = border;
-                    _compactBorderIndexMap[border] = (dayCol, period);
-                }
-
-                columnRoot.Children.Add(dayGrid);
+                _compactDayCanvasByCol[dayCol] = dayCanvas;
+                columnRoot.Children.Add(dayCanvas);
                 CompactDaysPanel.Children.Add(columnRoot);
-            }
-        }
-
-        private void ClearAllCourseCellsCompact()
-        {
-            _courseCellMap.Clear();
-            _selectionOverlayMap.Clear();
-            _selectedCourseBorder = null;
-            SelectedCourse = null;
-
-            foreach (var kv in _compactCellMap)
-            {
-                var border = kv.Value;
-                if (border == null)
-                    continue;
-
-                ResetBorderToEmpty(border);
             }
         }
 
@@ -627,144 +1187,6 @@ namespace CourseList.Views
             }
         }
 
-        private void ApplyCourseToCompactCells(Course course)
-        {
-            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrideIndex, _weekOverrides);
-
-            // 5天模式：跳过周六/周日课程
-            if (_scheduleWeekRange == 5 &&
-                (effDay == DayOfWeek.Saturday || effDay == DayOfWeek.Sunday))
-            {
-                return;
-            }
-
-            int dayOffset = (int)effDay - 1; // Monday=1 -> index 0
-            if (dayOffset < 0) dayOffset = 6; // Sunday=7 -> index 6
-            int dayCol = dayOffset + 1;
-
-            // 生成连续段：例如 [1,2,3,5] => (1..3), (5..5)
-            var sortedDistinctPeriods = effPeriods
-                .Where(p => p >= 1 && p <= _periodCount)
-                .Distinct()
-                .OrderBy(p => p)
-                .ToList();
-
-            if (sortedDistinctPeriods.Count == 0)
-                return;
-
-            var segments = GetConsecutiveSegments(sortedDistinctPeriods);
-            var courseColor = GetCourseBrush(course.Color);
-            bool isActive = IsCourseActiveInWeek(course, _displayWeek);
-            double targetOpacity = isActive ? 1.0 : 0.35;
-
-            foreach (var (startPeriod, endPeriod) in segments)
-            {
-                if (!_compactCellMap.TryGetValue((dayCol, startPeriod), out var topBorder) || topBorder == null)
-                    continue;
-
-                int spanLen = endPeriod - startPeriod + 1;
-
-                topBorder.Visibility = Visibility.Visible;
-                topBorder.Background = courseColor;
-                topBorder.BorderBrush = null;
-                topBorder.BorderThickness = new Thickness(0);
-                topBorder.Opacity = targetOpacity;
-                // 允许在紧凑布局里点击/拖拽目标（是否“可拖动”由 CanDrag 决定）
-                topBorder.IsHitTestVisible = true;
-                topBorder.CanDrag = isActive;
-                Grid.SetRowSpan(topBorder, spanLen);
-
-                var sp = new StackPanel
-                {
-                    Orientation = Orientation.Vertical,
-                    Spacing = 2,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Width = Math.Max(44, _compactDayColumnWidth - 10),
-                    Margin = new Thickness(4, 3, 4, 3)
-                };
-
-                sp.Children.Add(new TextBlock
-                {
-                    Text = course.Name,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextAlignment = TextAlignment.Center,
-                    Foreground = WhiteBrush,
-                    FontSize = 13,
-                    FontWeight = FontWeights.SemiBold
-                });
-
-                sp.Children.Add(new TextBlock
-                {
-                    Text = course.Teacher,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextAlignment = TextAlignment.Center,
-                    Foreground = WhiteBrush,
-                    FontSize = 11
-                });
-
-                sp.Children.Add(new TextBlock
-                {
-                    Text = course.Classroom,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextAlignment = TextAlignment.Center,
-                    Foreground = WhiteBrush,
-                    FontSize = 11
-                });
-
-                if (!isActive)
-                {
-                    sp.Children.Add(new TextBlock
-                    {
-                        Text = "（非本周）",
-                        TextWrapping = TextWrapping.NoWrap,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Foreground = WhiteBrush,
-                        FontSize = 10,
-                        FontWeight = FontWeights.SemiBold
-                    });
-                }
-
-                var root = new Grid();
-                root.Children.Add(sp);
-
-                var selectionOverlay = new Border
-                {
-                    IsHitTestVisible = false,
-                    CornerRadius = topBorder.CornerRadius,
-                    BorderThickness = new Thickness(2),
-                    BorderBrush = new SolidColorBrush(Colors.Transparent),
-                    Opacity = 0,
-                    Margin = new Thickness(-2)
-                };
-                root.Children.Add(selectionOverlay);
-                _selectionOverlayMap[topBorder] = selectionOverlay;
-
-                topBorder.Child = root;
-
-                if (isActive)
-                {
-                    _courseCellMap[topBorder] = course;
-                }
-
-                // 折叠掉连续段中后续的每节 Border
-                for (int p = startPeriod + 1; p <= endPeriod; p++)
-                {
-                    if (!_compactCellMap.TryGetValue((dayCol, p), out var border) || border == null)
-                        continue;
-
-                    border.Visibility = Visibility.Collapsed;
-                    border.Background = TransparentBrush;
-                    border.Child = null;
-                    border.BorderBrush = null;
-                    border.BorderThickness = new Thickness(0);
-                    border.Opacity = 1.0;
-                    border.IsHitTestVisible = false;
-                    Grid.SetRowSpan(border, 1);
-                }
-            }
-        }
-
         private void ApplyWeekRangeVisibility()
         {
             // 5天模式：真正删除 Grid 的周六/周日列，让周一到周五的 '*' 列自动铺满。
@@ -827,7 +1249,7 @@ namespace CourseList.Views
 
             foreach (var child in toRemove)
             {
-                if (ReferenceEquals(child, _scheduleDragOverlay))
+                if (ReferenceEquals(child, DesktopBlocksCanvas))
                     continue;
                 ScheduleGrid.Children.Remove(child);
             }
@@ -840,12 +1262,9 @@ namespace CourseList.Views
             for (int row = 1; row <= _periodCount; row++)
                 ScheduleGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(90) });
 
-            _cellMap.Clear();
             _courseCellMap.Clear();
-            _isScheduleGridInitialized = false;
 
             BuildPeriodHeaderCells();
-            // 拖放预览层在 EnsureScheduleGridInitialized 末尾创建/置顶
         }
 
         private void BuildPeriodHeaderCells()
@@ -908,120 +1327,6 @@ namespace CourseList.Views
             }
         }
 
-        private void EnsureScheduleGridInitialized()
-        {
-            if (_isScheduleGridInitialized)
-                return;
-
-            int dayColumnCount = _scheduleWeekRange == 7 ? 7 : 5; // col=1..N
-
-            // 生成课程单元格并绑定通用点击/双击事件（事件逻辑从映射 _courseCellMap 读取当前课程）
-            for (int row = 1; row <= _periodCount; row++)
-            {
-                for (int col = 1; col <= dayColumnCount; col++)
-                {
-                    var border = new Border
-                    {
-                        Style = this.Resources["CourseCellStyle"] as Style,
-                        Background = TransparentBrush,
-                        CornerRadius = new CornerRadius(6),
-                        Margin = new Thickness(4),
-                        BorderBrush = null,
-                        BorderThickness = new Thickness(0),
-                        RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5),
-                        RenderTransform = new ScaleTransform { ScaleX = 0.95, ScaleY = 0.95 }
-                    };
-
-                    border.PointerPressed += CourseCell_PointerPressed;
-                    border.DoubleTapped += CourseCell_DoubleTapped;
-                    border.DragStarting += ScheduleCell_DragStarting;
-                    border.DropCompleted += ScheduleCell_DropCompleted;
-                    border.AllowDrop = true;
-                    border.DragOver += ScheduleCell_DragOverForward;
-                    border.Drop += ScheduleCell_DropForward;
-
-                    Grid.SetRow(border, row);
-                    Grid.SetColumn(border, col);
-                    ScheduleGrid.Children.Add(border);
-                    _cellMap[(col, row)] = border;
-                }
-            }
-
-            _isScheduleGridInitialized = true;
-            EnsureScheduleDragOverlay();
-        }
-
-        /// <summary>
-        /// 拖放命中由 ScheduleGrid 统一处理（折叠单元格不接收 Drop）；预览层盖在周列区域上方且不参与命中。
-        /// </summary>
-        private void EnsureScheduleDragOverlay()
-        {
-            int dc = _scheduleWeekRange == 7 ? 7 : 5;
-
-            if (_scheduleDragOverlay == null)
-            {
-                _scheduleDragOverlay = new Canvas
-                {
-                    IsHitTestVisible = false,
-                    Visibility = Visibility.Collapsed
-                };
-                _scheduleDragPreviewRect = new Rectangle
-                {
-                    Stroke = new SolidColorBrush(Color.FromArgb(220, 0, 120, 215)),
-                    StrokeThickness = 2,
-                    Fill = new SolidColorBrush(Color.FromArgb(35, 0, 120, 215)),
-                    StrokeDashArray = new DoubleCollection { 5, 4 },
-                    IsHitTestVisible = false,
-                    Visibility = Visibility.Collapsed
-                };
-                _scheduleDragOverlay.Children.Add(_scheduleDragPreviewRect);
-            }
-
-            if (!ScheduleGrid.Children.Contains(_scheduleDragOverlay))
-                ScheduleGrid.Children.Add(_scheduleDragOverlay);
-
-            Grid.SetRow(_scheduleDragOverlay, 1);
-            Grid.SetColumn(_scheduleDragOverlay, 1);
-            Grid.SetRowSpan(_scheduleDragOverlay, _periodCount);
-            Grid.SetColumnSpan(_scheduleDragOverlay, dc);
-        }
-
-        /// <summary>保证预览层画在所有课程格之上（Grid 后添加的子元素在上层）。</summary>
-        private void BringScheduleDragOverlayToTop()
-        {
-            if (_scheduleDragOverlay == null || !ScheduleGrid.Children.Contains(_scheduleDragOverlay))
-                return;
-            ScheduleGrid.Children.Remove(_scheduleDragOverlay);
-            ScheduleGrid.Children.Add(_scheduleDragOverlay);
-        }
-
-        private void ClearAllCourseCells()
-        {
-            _courseCellMap.Clear();
-            _selectionOverlayMap.Clear();
-            _selectedCourseBorder = null;
-
-            foreach (var border in _cellMap.Values)
-            {
-                if (border == null)
-                    continue;
-
-                border.Background = TransparentBrush;
-                border.Child = null;
-                border.BorderBrush = null;
-                border.BorderThickness = new Thickness(0);
-                border.Visibility = Visibility.Visible;
-                border.CanDrag = false;
-                Grid.SetRowSpan(border, 1);
-
-                if (border.RenderTransform is ScaleTransform s)
-                {
-                    s.ScaleX = 0.95;
-                    s.ScaleY = 0.95;
-                }
-            }
-        }
-
         private static List<(int start, int end)> GetConsecutiveSegments(IReadOnlyList<int> sortedDistinctPeriods)
         {
             var segments = new List<(int start, int end)>();
@@ -1049,174 +1354,6 @@ namespace CourseList.Views
             return segments;
         }
 
-        private void ApplyCourseToCells(Course course)
-        {
-            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrideIndex, _weekOverrides);
-
-            // 只显示工作日：跳过周六/周日课程
-            if (_scheduleWeekRange == 5 &&
-                (effDay == DayOfWeek.Saturday || effDay == DayOfWeek.Sunday))
-            {
-                return;
-            }
-
-            int dayOffset = (int)effDay - 1; // Monday=1 -> index 0
-            if (dayOffset < 0) dayOffset = 6; // Sunday=7 -> index 6
-            int dayCol = dayOffset + 1;
-
-            // 生成连续段：例如 [1,2,3,5] => (1..3), (5..5)
-            var sortedDistinctPeriods = effPeriods
-                .Where(p => p >= 1 && p <= _periodCount)
-                .Distinct()
-                .OrderBy(p => p)
-                .ToList();
-
-            if (sortedDistinctPeriods.Count == 0)
-                return;
-
-            var segments = GetConsecutiveSegments(sortedDistinctPeriods);
-            var courseColor = GetCourseBrush(course.Color);
-            bool isActive = IsCourseActiveInWeek(course, _displayWeek);
-            double targetOpacity = isActive ? 1.0 : 0.35;
-
-            foreach (var (startPeriod, endPeriod) in segments)
-            {
-                var topKey = (dayCol, startPeriod);
-                if (!_cellMap.TryGetValue(topKey, out var topBorder) || topBorder == null)
-                    continue;
-
-                int spanLen = endPeriod - startPeriod + 1;
-
-                // 只在“连续段的第一节”显示内容，并通过 RowSpan 覆盖中间行
-                topBorder.Visibility = Visibility.Visible;
-                topBorder.Background = courseColor;
-                topBorder.BorderBrush = null;
-                topBorder.BorderThickness = new Thickness(0);
-                topBorder.Opacity = targetOpacity;
-                topBorder.IsHitTestVisible = isActive;
-                topBorder.CanDrag = isActive;
-                Grid.SetRowSpan(topBorder, spanLen);
-
-                var root = new Grid();
-                var sp = new StackPanel
-                {
-                    Orientation = Orientation.Vertical,
-                    Width = CourseContentWidth,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Spacing = 2
-                };
-
-                sp.Children.Add(new TextBlock
-                {
-                    Text = course.Name,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextAlignment = TextAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = WhiteBrush,
-                    FontSize = 16,
-                    FontWeight = FontWeights.SemiBold
-                });
-
-                sp.Children.Add(new TextBlock
-                {
-                    Text = course.Teacher,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextAlignment = TextAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = WhiteBrush,
-                    FontSize = 14
-                });
-
-                sp.Children.Add(new TextBlock
-                {
-                    Text = course.Classroom,
-                    TextWrapping = TextWrapping.Wrap,
-                    TextAlignment = TextAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = WhiteBrush,
-                    FontSize = 14
-                });
-
-                if (!isActive)
-                {
-                    sp.Children.Add(new TextBlock
-                    {
-                        Text = "（非本周）",
-                        TextWrapping = TextWrapping.NoWrap,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Foreground = WhiteBrush,
-                        FontSize = 12,
-                        FontWeight = FontWeights.SemiBold
-                    });
-                }
-
-                root.Children.Add(sp);
-
-                var selectionOverlay = new Border
-                {
-                    IsHitTestVisible = false,
-                    CornerRadius = topBorder.CornerRadius,
-                    BorderThickness = new Thickness(2),
-                    BorderBrush = new SolidColorBrush(Colors.Transparent),
-                    Opacity = 0,
-                    Margin = new Thickness(-2)
-                };
-                root.Children.Add(selectionOverlay);
-                _selectionOverlayMap[topBorder] = selectionOverlay;
-
-                topBorder.Child = root;
-
-                if (isActive)
-                {
-                    _courseCellMap[topBorder] = course;
-                }
-
-                // 折叠掉连续段中后续的每节 Border，避免重复显示，也避免出现“分隔缝”
-                for (int p = startPeriod + 1; p <= endPeriod; p++)
-                {
-                    var k = (dayCol, p);
-                    if (!_cellMap.TryGetValue(k, out var border) || border == null)
-                        continue;
-
-                    border.Visibility = Visibility.Collapsed;
-                    border.Background = TransparentBrush;
-                    border.Child = null;
-                    border.BorderBrush = null;
-                    border.BorderThickness = new Thickness(0);
-                    border.Opacity = 1.0;
-                    border.IsHitTestVisible = false;
-                    Grid.SetRowSpan(border, 1);
-                    _selectionOverlayMap.Remove(border);
-                }
-            }
-        }
-
-        private void ResetBorderToEmpty(Border border)
-        {
-            if (border == null)
-                return;
-
-            border.Background = TransparentBrush;
-            border.Child = null;
-            border.BorderBrush = null;
-            border.BorderThickness = new Thickness(0);
-            border.Visibility = Visibility.Visible;
-            border.Opacity = 1.0;
-            border.IsHitTestVisible = true;
-            border.CanDrag = false;
-            Grid.SetRowSpan(border, 1);
-            _selectionOverlayMap.Remove(border);
-            if (ReferenceEquals(_selectedCourseBorder, border))
-                _selectedCourseBorder = null;
-
-            if (border.RenderTransform is ScaleTransform s)
-            {
-                s.ScaleX = 0.95;
-                s.ScaleY = 0.95;
-            }
-        }
-
         private SolidColorBrush GetCourseBrush(string? hex)
         {
             var key = string.IsNullOrWhiteSpace(hex) ? "#808080" : hex.Trim();
@@ -1228,286 +1365,6 @@ namespace CourseList.Views
             return brush;
         }
 
-        private void ClearCourseCells(Course course)
-        {
-            foreach (var kv in _courseCellMap.ToList())
-            {
-                if (kv.Value == course)
-                    _courseCellMap.Remove(kv.Key);
-            }
-
-            var (effDay, effPeriods) = ScheduleEffectiveHelper.GetEffectiveSlot(course, _displayWeek, _weekOverrideIndex, _weekOverrides);
-            if (effPeriods.Count == 0)
-                return;
-
-            int dayOffset = (int)effDay - 1;
-            if (dayOffset < 0) dayOffset = 6;
-            int dayCol = dayOffset + 1;
-
-            var sorted = effPeriods.Where(p => p >= 1 && p <= _periodCount).Distinct().OrderBy(p => p).ToList();
-            foreach (var (start, end) in GetConsecutiveSegments(sorted))
-            {
-                for (int p = start; p <= end; p++)
-                {
-                    if (_cellMap.TryGetValue((dayCol, p), out var border) && border != null)
-                        ResetBorderToEmpty(border);
-                }
-            }
-        }
-
-        // --------- 小窗紧凑模式拖拽（独立于 desktop 的 ScheduleGrid 坐标系）---------
-        private void CompactCell_DragStarting(UIElement sender, DragStartingEventArgs e)
-        {
-            if (sender is not Border border ||
-                !_courseCellMap.TryGetValue(border, out var course) ||
-                !_compactBorderIndexMap.TryGetValue(border, out var idx))
-            {
-                e.Cancel = true;
-                return;
-            }
-
-            // compact 的 Border 使用 dayGrid.RowDefinitions（从 period=1 开始）
-            int start = idx.period;
-            int span = Math.Max(1, Grid.GetRowSpan(border));
-            int end = start + span - 1;
-
-            e.Data.Properties[DragPayloadKey] = $"{course.Id}|{start}|{end}|{span}";
-            e.Data.RequestedOperation = DataPackageOperation.Move;
-
-            _dragSourceBorder = border;
-            _dragSourceOpacity = border.Opacity;
-            if (border.RenderTransform is ScaleTransform st)
-            {
-                _dragSourceScaleX = st.ScaleX;
-                _dragSourceScaleY = st.ScaleY;
-            }
-
-            _dragRowSmoothFr = double.NaN;
-            AnimateDragSourceLift(border, lifting: true);
-        }
-
-        private void CompactCell_DragOver(object sender, DragEventArgs e)
-        {
-            e.Handled = true;
-
-            if (e.DataView?.Properties == null || !e.DataView.Properties.ContainsKey(DragPayloadKey))
-            {
-                e.AcceptedOperation = DataPackageOperation.None;
-                ClearCompactDragPreview();
-                return;
-            }
-
-            e.AcceptedOperation = DataPackageOperation.Move;
-
-            if (sender is not Border border ||
-                !_compactBorderIndexMap.TryGetValue(border, out var idx))
-            {
-                ClearCompactDragPreview();
-                return;
-            }
-
-            if (!TryParseDragPayload(e, out _, out _, out _, out int span) || span < 1)
-            {
-                ClearCompactDragPreview();
-                return;
-            }
-
-            // 根据 pointer 落在该 Border 内的 Y 位置，计算连续“节次刻度” frRaw
-            var localPos = e.GetPosition(border);
-            double rowH = GetCompactRowHeightForBorder(border);
-            if (rowH < 8)
-                rowH = CompactPeriodRowHeight;
-
-            double frRaw = idx.period + localPos.Y / rowH;
-            frRaw = Math.Clamp(frRaw, 1.0, _periodCount + 1.0 - 1e-6);
-
-            // 更新低通平滑状态，并计算落点 startRow 用于显示预览
-            double fr = GetFrForPlacement(frRaw, isDragOver: true);
-            int startRow = ResolveStartRowFromFr(fr, span);
-
-            int maxStart = _periodCount - span + 1;
-            if (maxStart < 1)
-            {
-                ClearCompactDragPreview();
-                return;
-            }
-
-            startRow = Math.Clamp(startRow, 1, maxStart);
-            UpdateCompactDragPreview(idx.dayCol, startRow, span);
-        }
-
-        private async void CompactCell_DropForward(object sender, DragEventArgs e)
-        {
-            e.Handled = true;
-            if (e.DataView?.Properties == null ||
-                !TryParseDragPayload(e, out int courseId, out int segStart, out int segEnd, out int span))
-            {
-                ResetDragRowSmoothFr();
-                ClearCompactDragPreview();
-                return;
-            }
-
-            if (sender is not Border border ||
-                !_compactBorderIndexMap.TryGetValue(border, out var idx))
-            {
-                ResetDragRowSmoothFr();
-                ClearCompactDragPreview();
-                return;
-            }
-
-            ClearCompactDragPreview();
-
-            var localPos = e.GetPosition(border);
-            double rowH = GetCompactRowHeightForBorder(border);
-            if (rowH < 8)
-                rowH = CompactPeriodRowHeight;
-
-            double frRaw = idx.period + localPos.Y / rowH;
-            frRaw = Math.Clamp(frRaw, 1.0, _periodCount + 1.0 - 1e-6);
-
-            double fr = GetFrForPlacement(frRaw, isDragOver: false);
-            int targetRow = ResolveStartRowFromFr(fr, span);
-
-            int maxStart = _periodCount - span + 1;
-            if (maxStart < 1)
-            {
-                ResetDragRowSmoothFr();
-                return;
-            }
-            targetRow = Math.Clamp(targetRow, 1, maxStart);
-
-            ResetDragRowSmoothFr();
-            await ProcessScheduleDropAsync(courseId, segStart, segEnd, idx.dayCol, targetRow);
-        }
-
-        private double GetCompactRowHeightForBorder(Border border)
-        {
-            try
-            {
-                var parent = VisualTreeHelper.GetParent(border);
-                if (parent is Grid dayGrid &&
-                    dayGrid.RowDefinitions.Count > 0)
-                {
-                    double h = dayGrid.RowDefinitions[0].ActualHeight;
-                    if (!double.IsNaN(h) && h >= 8)
-                        return h;
-                }
-            }
-            catch
-            {
-                // 忽略，使用 fallback
-            }
-
-            return CompactPeriodRowHeight;
-        }
-
-        private void UpdateCompactDragPreview(int dayCol, int startRow, int span)
-        {
-            if (startRow < 1 || span < 1 || dayCol < 1)
-            {
-                ClearCompactDragPreview();
-                return;
-            }
-
-            if (!_compactCellMap.TryGetValue((dayCol, startRow), out var refBorder) || refBorder == null)
-            {
-                ClearCompactDragPreview();
-                return;
-            }
-
-            var dayGrid = FindCompactDayGridForBorder(refBorder);
-            if (dayGrid == null)
-            {
-                ClearCompactDragPreview();
-                return;
-            }
-
-            if (_compactDragPreviewRect == null)
-            {
-                _compactDragPreviewRect = new Rectangle
-                {
-                    Stroke = new SolidColorBrush(Color.FromArgb(220, 0, 120, 215)),
-                    StrokeThickness = 2,
-                    Fill = new SolidColorBrush(Color.FromArgb(35, 0, 120, 215)),
-                    StrokeDashArray = new DoubleCollection { 5, 4 },
-                    IsHitTestVisible = false,
-                    Visibility = Visibility.Collapsed
-                };
-            }
-
-            // 重新托管到目标 dayGrid（不同 dayGrid 不能共用一个 parent）
-            if (!ReferenceEquals(_compactDragPreviewCurrentDayGrid, dayGrid))
-            {
-                if (_compactDragPreviewRect.Parent is Panel p1)
-                    p1.Children.Remove(_compactDragPreviewRect);
-
-                dayGrid.Children.Add(_compactDragPreviewRect);
-                _compactDragPreviewCurrentDayGrid = dayGrid;
-            }
-
-            Grid.SetRow(_compactDragPreviewRect, startRow - 1);
-            Grid.SetRowSpan(_compactDragPreviewRect, span);
-
-            // 尽量复用卡片的外观尺寸（margin/corner/scale），让虚线边框视觉贴合
-            _compactDragPreviewRect.Margin = refBorder.Margin;
-            _compactDragPreviewRect.RadiusX = refBorder.CornerRadius.TopLeft;
-            _compactDragPreviewRect.RadiusY = refBorder.CornerRadius.TopLeft;
-
-            if (refBorder.RenderTransform is ScaleTransform s)
-                _compactDragPreviewRect.RenderTransform = new ScaleTransform { ScaleX = s.ScaleX, ScaleY = s.ScaleY };
-            else
-                _compactDragPreviewRect.RenderTransform = null;
-
-            _compactDragPreviewRect.HorizontalAlignment = HorizontalAlignment.Stretch;
-            _compactDragPreviewRect.VerticalAlignment = VerticalAlignment.Stretch;
-            _compactDragPreviewRect.Visibility = Visibility.Visible;
-        }
-
-        private void ClearCompactDragPreview()
-        {
-            if (_compactDragPreviewRect != null)
-                _compactDragPreviewRect.Visibility = Visibility.Collapsed;
-            _compactDragPreviewCurrentDayGrid = null;
-        }
-
-        private static Grid? FindCompactDayGridForBorder(Border border)
-        {
-            var element = (DependencyObject?)border;
-            while (element != null)
-            {
-                if (element is Grid g && g.RowDefinitions.Count > 0 && g.RowDefinitions.Count <= 1000)
-                    return g;
-                element = VisualTreeHelper.GetParent(element);
-            }
-            return null;
-        }
-
-        private void ScheduleCell_DragStarting(UIElement sender, DragStartingEventArgs e)
-        {
-            if (sender is not Border border || !_courseCellMap.TryGetValue(border, out var course))
-            {
-                e.Cancel = true;
-                return;
-            }
-
-            int start = Grid.GetRow(border);
-            int span = Math.Max(1, Grid.GetRowSpan(border));
-            int end = start + span - 1;
-            e.Data.Properties[DragPayloadKey] = $"{course.Id}|{start}|{end}|{span}";
-            e.Data.RequestedOperation = DataPackageOperation.Move;
-
-            _dragSourceBorder = border;
-            _dragSourceOpacity = border.Opacity;
-            if (border.RenderTransform is ScaleTransform st)
-            {
-                _dragSourceScaleX = st.ScaleX;
-                _dragSourceScaleY = st.ScaleY;
-            }
-
-            _dragRowSmoothFr = double.NaN;
-            AnimateDragSourceLift(border, lifting: true);
-        }
-
         private void ScheduleCell_DropCompleted(UIElement sender, DropCompletedEventArgs e)
         {
             if (sender is Border b && ReferenceEquals(b, _dragSourceBorder))
@@ -1517,7 +1374,7 @@ namespace CourseList.Views
             }
 
             ResetDragRowSmoothFr();
-            ClearScheduleDragPreview();
+            ClearDesktopDragPreview();
             ClearCompactDragPreview();
         }
 
@@ -1603,175 +1460,11 @@ namespace CourseList.Views
             }
         }
 
-        private void ScheduleCell_DragOverForward(object sender, DragEventArgs e) =>
-            ScheduleGrid_DragOver(ScheduleGrid, e);
-
-        private void ScheduleCell_DropForward(object sender, DragEventArgs e) =>
-            ScheduleGrid_Drop(ScheduleGrid, e);
-
-        private void ScheduleGrid_DragOver(object sender, DragEventArgs e)
-        {
-            e.Handled = true;
-            if (e.DataView?.Properties == null || !e.DataView.Properties.ContainsKey(DragPayloadKey))
-            {
-                e.AcceptedOperation = DataPackageOperation.None;
-                ClearScheduleDragPreview();
-                return;
-            }
-
-            e.AcceptedOperation = DataPackageOperation.Move;
-
-            if (!TryParseDragPayload(e, out _, out _, out _, out int span))
-            {
-                ClearScheduleDragPreview();
-                return;
-            }
-
-            var pos = e.GetPosition(ScheduleGrid);
-            if (!TryResolveDropPlacement(pos, span, out int dayCol, out int startRow, isDragOver: true))
-            {
-                ClearScheduleDragPreview();
-                return;
-            }
-
-            UpdateScheduleDragPreview(dayCol, startRow, span);
-        }
-
-        private void ScheduleGrid_DragLeave(object sender, DragEventArgs e)
-        {
-            ResetDragRowSmoothFr();
-            ClearScheduleDragPreview();
-        }
-
-        private async void ScheduleGrid_Drop(object sender, DragEventArgs e)
-        {
-            e.Handled = true;
-            ClearScheduleDragPreview();
-
-            if (e.DataView?.Properties == null ||
-                !TryParseDragPayload(e, out int courseId, out int segStart, out int segEnd, out int span))
-            {
-                ResetDragRowSmoothFr();
-                return;
-            }
-
-            var pos = e.GetPosition(ScheduleGrid);
-            if (!TryResolveDropPlacement(pos, span, out int targetCol, out int targetRow, isDragOver: false))
-            {
-                ResetDragRowSmoothFr();
-                return;
-            }
-
-            ResetDragRowSmoothFr();
-            await ProcessScheduleDropAsync(courseId, segStart, segEnd, targetCol, targetRow);
-        }
-
         private static bool TryParseDragPayload(DragEventArgs e, out int courseId, out int segStart, out int segEnd, out int span)
         {
-            courseId = segStart = segEnd = span = 0;
-            if (e.DataView?.Properties == null ||
-                !e.DataView.Properties.TryGetValue(DragPayloadKey, out var raw) ||
-                raw is not string payload)
-                return false;
-
-            var parts = payload.Split('|');
-            if (parts.Length >= 4 &&
-                int.TryParse(parts[0], out courseId) &&
-                int.TryParse(parts[1], out segStart) &&
-                int.TryParse(parts[2], out segEnd) &&
-                int.TryParse(parts[3], out span))
-                return true;
-
-            if (parts.Length == 3 &&
-                int.TryParse(parts[0], out courseId) &&
-                int.TryParse(parts[1], out segStart) &&
-                int.TryParse(parts[2], out segEnd))
-            {
-                span = Math.Max(1, segEnd - segStart + 1);
-                return true;
-            }
-
-            return false;
+            return TryParseDragPayload(e, out courseId, out segStart, out segEnd, out span, out _);
         }
 
-        /// <summary>
-        /// 解析落点：连续行坐标 fr（1=第1节格顶，每节+1）下，整块中心与指针对齐：
-        /// start = round(fr - (span-1)/2)。不再使用格内三分区，避免在 2/3 节缝隙附近虚线框在 1-2、2-3、3-4 间乱跳。
-        /// </summary>
-        private bool TryResolveDropPlacement(Point positionInScheduleGrid, int span, out int dayCol, out int startRow, bool isDragOver)
-        {
-            dayCol = 1;
-            startRow = 1;
-            span = Math.Max(1, span);
-
-            if (!TryResolveDayColumn(positionInScheduleGrid.X, out dayCol))
-                return false;
-
-            double frRaw = ComputeFrRawFromPoint(positionInScheduleGrid);
-            if (double.IsNaN(frRaw))
-                return false;
-
-            double fr = GetFrForPlacement(frRaw, isDragOver);
-            startRow = ResolveStartRowFromFr(fr, span);
-
-            int maxStart = _periodCount - span + 1;
-            if (maxStart < 1)
-                return false;
-            startRow = Math.Clamp(startRow, 1, maxStart);
-            return true;
-        }
-
-        private bool TryResolveDayColumn(double x, out int dayCol)
-        {
-            dayCol = 1;
-            if (ScheduleGrid.ColumnDefinitions.Count < 2)
-                return false;
-
-            double col0W = ScheduleGrid.ColumnDefinitions[0].ActualWidth;
-            if (x < col0W || double.IsNaN(col0W) || col0W < 1)
-                return false;
-
-            int dc = _scheduleWeekRange == 7 ? 7 : 5;
-            double accX = col0W;
-            dayCol = -1;
-            for (int c = 1; c <= dc; c++)
-            {
-                double cw = ScheduleGrid.ColumnDefinitions[c].ActualWidth;
-                if (cw < 1)
-                    cw = 1;
-                if (x < accX + cw)
-                {
-                    dayCol = c;
-                    break;
-                }
-
-                accX += cw;
-            }
-
-            return dayCol >= 1;
-        }
-
-        /// <summary>
-        /// 指针 Y 映射到连续「节次刻度」fr：1 为第1节行顶，fr=3.5 约在第3、4节之间。
-        /// </summary>
-        private double ComputeFrRawFromPoint(Point positionInScheduleGrid)
-        {
-            double y = positionInScheduleGrid.Y;
-            if (ScheduleGrid.RowDefinitions.Count < 2)
-                return double.NaN;
-
-            double headerH = ScheduleGrid.RowDefinitions[0].ActualHeight;
-            if (y < headerH || double.IsNaN(headerH))
-                return double.NaN;
-
-            double ry = y - headerH;
-            double rowH = ScheduleGrid.RowDefinitions[1].ActualHeight;
-            if (rowH < 8)
-                rowH = 90;
-
-            double fr = 1.0 + ry / rowH;
-            return Math.Clamp(fr, 1.0, _periodCount + 1.0 - 1e-6);
-        }
 
         private int ResolveStartRowFromFr(double fr, int span)
         {
@@ -1780,51 +1473,6 @@ namespace CourseList.Views
             return (int)Math.Round(startDouble);
         }
 
-        private void UpdateScheduleDragPreview(int dayCol, int startRow, int span)
-        {
-            if (_scheduleDragOverlay == null || _scheduleDragPreviewRect == null)
-                return;
-
-            int dc = _scheduleWeekRange == 7 ? 7 : 5;
-            double w = _scheduleDragOverlay.ActualWidth;
-            double h = _scheduleDragOverlay.ActualHeight;
-            if (w < 8 && ScheduleGrid.ColumnDefinitions.Count > dc)
-            {
-                double total = ScheduleGrid.ActualWidth;
-                double c0 = ScheduleGrid.ColumnDefinitions[0].ActualWidth;
-                w = Math.Max(1, total - c0);
-            }
-
-            if (h < 8 && ScheduleGrid.RowDefinitions.Count > _periodCount)
-            {
-                double rowH = ScheduleGrid.RowDefinitions[1].ActualHeight;
-                if (rowH < 8)
-                    rowH = 90;
-                h = rowH * _periodCount;
-            }
-
-            if (w < 8 || h < 8)
-                return;
-
-            double cellW = w / dc;
-            double cellH = h / _periodCount;
-
-            Canvas.SetLeft(_scheduleDragPreviewRect, (dayCol - 1) * cellW + 2);
-            Canvas.SetTop(_scheduleDragPreviewRect, (startRow - 1) * cellH + 2);
-            _scheduleDragPreviewRect.Width = Math.Max(8, cellW - 4);
-            _scheduleDragPreviewRect.Height = Math.Max(8, cellH * span - 4);
-
-            _scheduleDragOverlay.Visibility = Visibility.Visible;
-            _scheduleDragPreviewRect.Visibility = Visibility.Visible;
-        }
-
-        private void ClearScheduleDragPreview()
-        {
-            if (_scheduleDragOverlay != null)
-                _scheduleDragOverlay.Visibility = Visibility.Collapsed;
-            if (_scheduleDragPreviewRect != null)
-                _scheduleDragPreviewRect.Visibility = Visibility.Collapsed;
-        }
 
         private static DayOfWeek DayColumnToDayOfWeek(int col) => col switch
         {
@@ -2142,7 +1790,6 @@ namespace CourseList.Views
             if (target == null)
                 return;
 
-            ClearCourseCells(target);
             WeekScheduleOverrideHelper.RemoveAllForCourse(_weekOverrides, courseId);
             _weekOverrideIndex = ScheduleEffectiveHelper.BuildOverrideIndex(_weekOverrides);
             await WeekScheduleOverrideHelper.SaveAsync(_weekOverrides);

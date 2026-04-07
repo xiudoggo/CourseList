@@ -169,7 +169,7 @@
         </Grid.RowDefinitions>
 
         <!-- 标题栏 -->
-        <Grid Grid.Row="0" Margin="0,0,0,20" ColumnDefinitions="*,Auto,Auto,Auto" RowDefinitions="Auto,Auto">
+        <Grid Grid.Row="0" Margin="0" ColumnDefinitions="*,Auto,Auto,Auto" RowDefinitions="Auto,Auto">
             <TextBlock Grid.Row="0"
                        Grid.Column="0"
                        Text="📚 课程列表"
@@ -262,17 +262,20 @@
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       HorizontalContentAlignment="Stretch">
-            <muxc:ItemsRepeater x:Name="CourseRepeater"
-                                HorizontalAlignment="Stretch"
-                                ItemTemplate="{StaticResource CourseCardTemplate}">
-                <muxc:ItemsRepeater.Layout>
-                    <muxc:UniformGridLayout MinItemWidth="220"
-                                            MinItemHeight="182"
-                                            MinRowSpacing="12"
-                                            MinColumnSpacing="12"
-                                            ItemsStretch="Fill" />
-                </muxc:ItemsRepeater.Layout>
-            </muxc:ItemsRepeater>
+            <!-- 顶部留白：首行卡片 hover 上移 + 缩放时仍落在可绘区域内，避免上边框被 ScrollViewer 裁切 -->
+            <Grid Padding="0,16,0,0">
+                <muxc:ItemsRepeater x:Name="CourseRepeater"
+                                    HorizontalAlignment="Stretch"
+                                    ItemTemplate="{StaticResource CourseCardTemplate}">
+                    <muxc:ItemsRepeater.Layout>
+                        <muxc:UniformGridLayout MinItemWidth="220"
+                                                MinItemHeight="182"
+                                                MinRowSpacing="12"
+                                                MinColumnSpacing="12"
+                                                ItemsStretch="Fill" />
+                    </muxc:ItemsRepeater.Layout>
+                </muxc:ItemsRepeater>
+            </Grid>
         </ScrollViewer>
 
         <!-- 空状态提示 -->
