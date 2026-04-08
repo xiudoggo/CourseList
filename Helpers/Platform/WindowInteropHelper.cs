@@ -56,7 +56,9 @@ namespace CourseList.Helpers.Platform
         {
             var mmi = Marshal.PtrToStructure<MinMaxInfo>(lParam);
             mmi.ptMinTrackSize.X = DipToPixel(minWidthDip, hWnd);
-            Marshal.StructureToPtr(mmi, lParam, true);
+            // lParam 指向系统提供的 MINMAXINFO，勿对 deleteOld 传 true，否则会破坏/错误释放该缓冲区（AccessViolation）。
+            Marshal.StructureToPtr(mmi, lParam, false);
         }
+
     }
 }

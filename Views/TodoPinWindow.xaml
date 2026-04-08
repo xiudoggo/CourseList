@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="CourseList.Views.TodoPinWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="待办置顶">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid Background="Transparent">
+        <muxc:TabView x:Name="RootTabView"
+                      VerticalAlignment="Stretch"
+                      IsAddTabButtonVisible="False"
+                      CanDragTabs="True"
+                      CanReorderTabs="True"
+                      CanTearOutTabs="False"
+                      AllowDropTabs="True"
+                      AllowDrop="True"
+                      TabWidthMode="SizeToContent"
+                      DoubleTapped="RootTabView_DoubleTapped"
+                      PointerWheelChanged="RootTabView_PointerWheelChanged"
+                      TabCloseRequested="RootTabView_TabCloseRequested"
+                      TabDragStarting="RootTabView_TabDragStarting"
+                      TabDragCompleted="RootTabView_TabDragCompleted"
+                      TabStripDragOver="RootTabView_TabStripDragOver"
+                      TabStripDrop="RootTabView_TabStripDrop"
+                      TabDroppedOutside="RootTabView_TabDroppedOutside">
+            <muxc:TabView.Resources>
+                <Thickness x:Key="TabViewItemLeftScrollButtonContainerPadding">0</Thickness>
+                <Thickness x:Key="TabViewItemRightScrollButtonContainerPadding">0</Thickness>
+                <Style x:Key="TabViewScrollButtonStyle" TargetType="RepeatButton">
+                    <Setter Property="Width" Value="0"/>
+                    <Setter Property="Height" Value="0"/>
+                    <Setter Property="MinWidth" Value="0"/>
+                    <Setter Property="MinHeight" Value="0"/>
+                    <Setter Property="Opacity" Value="0"/>
+                    <Setter Property="IsHitTestVisible" Value="False"/>
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="Margin" Value="0"/>
+                    <Setter Property="BorderThickness" Value="0"/>
+                </Style>
+            </muxc:TabView.Resources>
+            <!-- 系统标题栏被隐藏后，需要一块可拖动区域；放在 TabStrip 下方（与你期望的位置一致） -->
+            <muxc:TabView.TabStripFooter>
+                <Grid x:Name="PinWindowDragRegion"
+                      Height="28"
+                      Background="Transparent"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Top"
+                      IsHitTestVisible="True" />
+            </muxc:TabView.TabStripFooter>
+        </muxc:TabView>
+    </Grid>
+</Window>

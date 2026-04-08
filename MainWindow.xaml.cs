@@ -431,6 +431,9 @@ namespace CourseList
         {
             try
             {
+                // Ensure torn-out pin windows don't keep process alive.
+                TodoPinWindowManager.CloseAllPinWindows();
+
                 _windowModeController?.Dispose();
                 _windowModeController = null;
 

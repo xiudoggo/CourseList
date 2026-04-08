@@ -22,6 +22,7 @@ namespace CourseList.Views
         private const double DragThresholdPx = 8;
 
         private readonly ObservableCollection<ToDoItem> _todos = new();
+        private bool _suppressCompletedChanged;
         private ToDoItem? _selectedToDo;
         private Border? _selectedCard;
         private readonly Thickness _desktopPadding = new Thickness(20);
@@ -55,6 +56,7 @@ namespace CourseList.Views
         private EventHandler<object>? _flipLayoutWaiter;
         private EventHandler<object>? _mergeRevealLayoutWaiter;
         private ToDoItem? _mergeRevealItem;
+        private bool _todoSyncSubscribed;
 
         public ToDoPage()
         {
@@ -62,6 +64,11 @@ namespace CourseList.Views
             ToDoRepeater.ItemsSource = _todos;
             Loaded += (_, _) =>
             {
+                if (!_todoSyncSubscribed)
+                {
+                    TodoPinWindowManager.TodoCompletedStateChanged += OnTodoCompletedStateChanged;
+                    _todoSyncSubscribed = true;
+                }
                 if (TodoSelectionTeachingTip != null)
                     TodoSelectionTeachingTip.XamlRoot = XamlRoot;
                 if (DragOverlay != null)
@@ -69,6 +76,23 @@ namespace CourseList.Views
                 if (ToDoListHost != null)
                     ToDoListHost.Clip = null;
             };
+            Unloaded += (_, _) =>
+            {
+                if (_todoSyncSubscribed)
+                {
+                    TodoPinWindowManager.TodoCompletedStateChanged -= OnTodoCompletedStateChanged;
+                    _todoSyncSubscribed = false;
+                }
+            };
+        }
+
+        private void OnTodoCompletedStateChanged(int changedTodoId, bool completed)
+        {
+            // Incremental sync only; avoid full refresh that causes hover/selection jitter.
+            var item = _todos.FirstOrDefault(t => t.Id == changedTodoId && !t.IsDragPlaceholder);
+            if (item == null)
+                return;
+            item.Completed = completed;
         }
 
         protected override async void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
@@ -88,9 +112,19 @@ namespace CourseList.Views
         private async Task LoadToDosAsync()
         {
             var items = await ToDoDataHelper.LoadToDosAsync();
+            var dq = DispatcherQueue.GetForCurrentThread();
+            _suppressCompletedChanged = true;
             _todos.Clear();
             foreach (var o in items)
                 _todos.Add(o);
+            // Checked/Unchecked can be fired during element recycling/binding AFTER the collection update.
+            // Release suppression only after the repeater completes a layout pass.
+            void ReleaseSuppression(object? _, object __)
+            {
+                try { ToDoRepeater.LayoutUpdated -= ReleaseSuppression; } catch { }
+                _suppressCompletedChanged = false;
+            }
+            ToDoRepeater.LayoutUpdated += ReleaseSuppression;
             ClearSelectionVisual();
             _selectedToDo = null;
             UpdateEmptyVisibility();
@@ -107,6 +141,13 @@ namespace CourseList.Views
         private async Task SaveRealTodosAsync()
         {
             await ToDoDataHelper.SaveToDosAsync(SnapshotRealTodos());
+        }
+
+        private void TodoCardPin_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button btn || btn.Tag is not ToDoItem todo || todo.IsDragPlaceholder)
+                return;
+            TodoPinWindowManager.OpenOrActivate(todo.Id, todo.Title, () => LoadToDosAsync());
         }
 
         private void AddTodoBtn_Click(object sender, RoutedEventArgs e)
@@ -167,6 +208,10 @@ namespace CourseList.Views
 
         private async void ToDoCompleted_Changed(object sender, RoutedEventArgs e)
         {
+            if (_suppressCompletedChanged)
+            {
+                return;
+            }
             if (sender is not CheckBox cb)
                 return;
             if (TryResolveToDoItem(cb) is not { } bound || bound.IsDragPlaceholder)
@@ -176,8 +221,13 @@ namespace CourseList.Views
                 return;
 
             bool newValue = cb.IsChecked == true;
+            // Avoid saving when this event is triggered by UI rebind (programmatic IsChecked change).
+            if (item.Completed == newValue)
+                return;
+
             item.Completed = newValue;
             await SaveRealTodosAsync();
+            TodoPinWindowManager.NotifyTodoCompletedStateChanged(item.Id, newValue);
         }
 
         private static ToDoItem? TryResolveToDoItem(CheckBox cb)

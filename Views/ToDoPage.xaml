@@ -45,14 +45,34 @@
                     </TransformGroup>
                 </Border.RenderTransform>
                 <Grid RowDefinitions="Auto,Auto,Auto,*">
-                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
                         <CheckBox Grid.Column="0"
                                   VerticalAlignment="Center"
                                   Content="完成"
-                                  IsChecked="{x:Bind Completed, Mode=TwoWay}"
+                                  IsChecked="{x:Bind Completed, Mode=OneWay}"
                                   Checked="ToDoCompleted_Changed"
                                   Unchecked="ToDoCompleted_Changed"/>
-                        <Border Grid.Column="1"
+                        <Button Grid.Column="2"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Right"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="2"
+                                MinWidth="26"
+                                MinHeight="26"
+                                Width="26"
+                                Height="26"
+                                Tag="{x:Bind}"
+                                ToolTipService.ToolTip="置顶到小窗"
+                                Click="TodoCardPin_Click">
+                            <Viewbox Width="14" Height="14"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center">
+                                <SymbolIcon Symbol="Pin"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Viewbox>
+                        </Button>
+                        <Border Grid.Column="3"
                                 VerticalAlignment="Center"
                                 HorizontalAlignment="Right"
                                 Padding="8,4"

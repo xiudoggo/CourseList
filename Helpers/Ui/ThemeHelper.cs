@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Windowing;
 using System;
+using System.Collections.Generic;
 using CourseList;
 using Windows.UI;
 using Microsoft.UI;
@@ -13,6 +14,37 @@ namespace CourseList.Helpers;
 public static class ThemeHelper
 {
     private static bool _subscribedToActualThemeChanged;
+    private static readonly List<WeakReference<Window>> PinWindows = new();
+
+    public static void RegisterPinWindow(Window window)
+    {
+        PinWindows.Add(new WeakReference<Window>(window));
+        if (App.CurrentMainWindow?.Content is FrameworkElement mainFe && window.Content is FrameworkElement pinFe)
+            pinFe.RequestedTheme = mainFe.RequestedTheme;
+        SyncPinWindowChrome(window);
+    }
+
+    public static void UnregisterPinWindow(Window window)
+    {
+        for (int i = PinWindows.Count - 1; i >= 0; i--)
+        {
+            if (!PinWindows[i].TryGetTarget(out var w) || ReferenceEquals(w, window))
+                PinWindows.RemoveAt(i);
+        }
+    }
+
+    /// <summary>根据主窗口当前实际主题同步置顶窗标题栏按钮色。</summary>
+    public static void SyncPinWindowChrome(Window window)
+    {
+        if (App.CurrentMainWindow?.Content is FrameworkElement mainRoot)
+        {
+            UpdateTitleBarForWindow(window, mainRoot.ActualTheme == ElementTheme.Dark);
+            return;
+        }
+
+        if (window.Content is FrameworkElement fe)
+            UpdateTitleBarForWindow(window, fe.ActualTheme == ElementTheme.Dark);
+    }
 
     public static void ApplyTheme(string? themeStr)
     {
@@ -36,16 +68,40 @@ public static class ThemeHelper
                 {
                     bool actualIsDark = root.ActualTheme == ElementTheme.Dark;
                     UpdateTitleBarButtons(actualIsDark);
+                    SyncPinnedWindowsTitleBarsFromMain(root);
                 };
             }
 
             bool effectiveIsDark = (theme == ElementTheme.Default ? root.ActualTheme : theme) == ElementTheme.Dark;
             UpdateTitleBarButtons(effectiveIsDark);
+            ApplyThemeToPinWindows(theme, root);
             return;
         }
 
         // fallback：拿不到 root 时至少按 Requested 的 themeStr 设置。
         UpdateTitleBarButtons(theme == ElementTheme.Dark);
+    }
+
+    private static void ApplyThemeToPinWindows(ElementTheme theme, FrameworkElement mainRoot)
+    {
+        bool titleBarDark = (theme == ElementTheme.Default ? mainRoot.ActualTheme : theme) == ElementTheme.Dark;
+        foreach (var wr in PinWindows)
+        {
+            if (!wr.TryGetTarget(out var win) || win.Content is not FrameworkElement fe)
+                continue;
+            fe.RequestedTheme = theme;
+            UpdateTitleBarForWindow(win, titleBarDark);
+        }
+    }
+
+    private static void SyncPinnedWindowsTitleBarsFromMain(FrameworkElement mainRoot)
+    {
+        bool isDark = mainRoot.ActualTheme == ElementTheme.Dark;
+        foreach (var wr in PinWindows)
+        {
+            if (wr.TryGetTarget(out var win))
+                UpdateTitleBarForWindow(win, isDark);
+        }
     }
 
     private static void UpdateTitleBarButtons(bool isDark)
@@ -56,18 +112,27 @@ public static class ThemeHelper
             if (mainWindow == null)
                 return;
 
-            var hwnd = WindowNative.GetWindowHandle(mainWindow);
+            UpdateTitleBarForWindow(mainWindow, isDark);
+        }
+        catch
+        {
+            // 忽略标题栏 API 异常，避免影响主流程
+        }
+    }
+
+    private static void UpdateTitleBarForWindow(Window window, bool isDark)
+    {
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(window);
             var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
             var appWindow = AppWindow.GetFromWindowId(windowId);
 
             if (appWindow?.TitleBar != null)
             {
-                // 设置前景色
                 appWindow.TitleBar.ButtonForegroundColor = isDark ? Colors.White : Colors.Black;
                 appWindow.TitleBar.ButtonInactiveForegroundColor = isDark ? Colors.White : Colors.Black;
 
-                // 根据主题设置 hover/pressed 背景色，避免始终为黑色
-                // 这几个属性是可选自定义；如果不支持，外层 try/catch 会忽略。
                 var hoverBg = isDark ? Color.FromArgb(60, 255, 255, 255) : Color.FromArgb(60, 0, 0, 0);
                 var pressedBg = isDark ? Color.FromArgb(90, 255, 255, 255) : Color.FromArgb(90, 0, 0, 0);
                 var inactiveBg = isDark ? Color.FromArgb(40, 255, 255, 255) : Color.FromArgb(40, 0, 0, 0);
@@ -79,7 +144,7 @@ public static class ThemeHelper
         }
         catch
         {
-            // 忽略标题栏 API 异常，避免影响主流程
+            // 忽略标题栏 API 异常
         }
     }
 }
