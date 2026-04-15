@@ -13,7 +13,7 @@
         <MicaBackdrop />
     </Window.SystemBackdrop>
 
-    <Grid Background="Transparent">
+    <Grid x:Name="RootLayoutGrid" Background="Transparent">
         <muxc:TabView x:Name="RootTabView"
                       VerticalAlignment="Stretch"
                       IsAddTabButtonVisible="False"
@@ -56,5 +56,48 @@
                       IsHitTestVisible="True" />
             </muxc:TabView.TabStripFooter>
         </muxc:TabView>
+
+        <Grid x:Name="SizingOverlay"
+              Visibility="Collapsed"
+              Background="{ThemeResource SystemControlAcrylicWindowBrush}">
+            <Border HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    Margin="16"
+                    Padding="24"
+                    CornerRadius="12"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <Grid HorizontalAlignment="Stretch"
+                      MaxWidth="520">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0"
+                               Text="拖拽窗口边缘调整后，点击固定大小保存。"
+                               TextWrapping="Wrap"
+                               HorizontalAlignment="Stretch"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Grid.Row="1"
+                               x:Name="SizingSizeText"
+                               Text="当前尺寸: 500 x 500 DIP"
+                               Margin="0,12,0,0"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Stretch"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               MaxWidth="460"/>
+                    <Button Grid.Row="2"
+                            x:Name="SizingConfirmButton"
+                            Content="固定大小"
+                            HorizontalAlignment="Stretch"
+                            Margin="0,12,0,0"
+                            Click="SizingConfirmButton_Click"/>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

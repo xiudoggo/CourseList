@@ -27,6 +27,9 @@
                     BorderThickness="1"
                     CornerRadius="12"
                     Padding="10"
+                    Width="Auto"
+                    MaxWidth="280"
+                    HorizontalAlignment="Stretch"
                     Height="168"
                     Tag="{x:Bind}"
                     Translation="0,0,10"
@@ -44,107 +47,246 @@
                         <TranslateTransform X="0" Y="0"/>
                     </TransformGroup>
                 </Border.RenderTransform>
-                <Grid RowDefinitions="Auto,Auto,Auto,*">
-                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid Grid.Row="0">
+                        <CheckBox HorizontalAlignment="Left"
+                                  VerticalAlignment="Center"
+                                  Content="完成"
+                                  IsChecked="{x:Bind Completed, Mode=OneWay}"
+                                  Checked="ToDoCompleted_Changed"
+                                  Unchecked="ToDoCompleted_Changed"/>
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Spacing="8">
+                            <Button VerticalAlignment="Center"
+                                    HorizontalAlignment="Right"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="2"
+                                    MinWidth="26"
+                                    MinHeight="26"
+                                    Width="26"
+                                    Height="26"
+                                    Tag="{x:Bind}"
+                                    ToolTipService.ToolTip="置顶到小窗"
+                                    Click="TodoCardPin_Click">
+                                <Viewbox Width="14" Height="14"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center">
+                                    <SymbolIcon Symbol="Pin"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </Viewbox>
+                            </Button>
+                            <Border VerticalAlignment="Center"
+                                    HorizontalAlignment="Right"
+                                    Padding="8,4"
+                                    CornerRadius="6">
+                                <Border.Background>
+                                    <SolidColorBrush Color="{x:Bind PriorityEndColor, Mode=OneWay}"/>
+                                </Border.Background>
+                                <TextBlock Text="{x:Bind PriorityDisplayName, Mode=OneWay}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"
+                                           TextWrapping="NoWrap"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                    <ScrollViewer Grid.Row="1"
+                                  Margin="0,6,0,0"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Orientation="Vertical" Spacing="4">
+                            <TextBlock Text="{x:Bind Title}"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="NoWrap"
+                                       MaxLines="1"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{x:Bind Content}"
+                                       FontSize="13"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="NoWrap"
+                                       MaxLines="1"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <muxc:ItemsRepeater IsHitTestVisible="False"
+                                                ItemsSource="{x:Bind Tags, Mode=OneWay}"
+                                                HorizontalAlignment="Left">
+                                <muxc:ItemsRepeater.Layout>
+                                    <uihelpers:FlowWrapLayout HorizontalSpacing="6" VerticalSpacing="4"/>
+                                </muxc:ItemsRepeater.Layout>
+                                <muxc:ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                        <Border MinHeight="22"
+                                                CornerRadius="11"
+                                                Padding="8,3"
+                                                HorizontalAlignment="Left"
+                                                MaxWidth="280"
+                                                Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneTime}"
+                                                BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                                BorderThickness="1"
+                                                ToolTipService.ToolTip="{x:Bind Mode=OneTime}">
+                                            <TextBlock Text="{x:Bind Mode=OneTime}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="#FFFFFFFF"
+                                                       VerticalAlignment="Center"
+                                                       TextWrapping="NoWrap"
+                                                       MaxLines="1"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </muxc:ItemsRepeater.ItemTemplate>
+                            </muxc:ItemsRepeater>
+                            <TextBlock Text="{x:Bind DueDateText}"
+                                       FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ToDoCardCompactTemplate" x:DataType="models:ToDoItem">
+            <Grid Margin="6">
+                <Border Height="128"
+                        HorizontalAlignment="Stretch"
+                        Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                        BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                        BorderThickness="2"
+                        CornerRadius="12"
+                        Opacity="0.92"
+                        Visibility="{x:Bind IsDragPlaceholder, Mode=OneWay}"/>
+                <Border Background="{ThemeResource CourseListCardBackgroundBrush}"
+                        BorderBrush="{ThemeResource CourseListCardStrokeBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        Padding="12,10"
+                        HorizontalAlignment="Stretch"
+                        Height="128"
+                        Tag="{x:Bind}"
+                        Translation="0,0,10"
+                        RenderTransformOrigin="0.5,0.5"
+                        Visibility="{x:Bind IsDragPlaceholder, Mode=OneWay, Converter={StaticResource InverseBoolToVis}}"
+                        PointerPressed="ToDoCard_PointerPressed"
+                        PointerEntered="ToDoCard_PointerEntered"
+                        PointerExited="ToDoCard_PointerExited">
+                    <Border.Shadow>
+                        <media:ThemeShadow />
+                    </Border.Shadow>
+                    <Border.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform ScaleX="1" ScaleY="1"/>
+                            <TranslateTransform X="0" Y="0"/>
+                        </TransformGroup>
+                    </Border.RenderTransform>
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                         <CheckBox Grid.Column="0"
                                   VerticalAlignment="Center"
                                   Content="完成"
                                   IsChecked="{x:Bind Completed, Mode=OneWay}"
                                   Checked="ToDoCompleted_Changed"
                                   Unchecked="ToDoCompleted_Changed"/>
-                        <Button Grid.Column="2"
-                                VerticalAlignment="Center"
-                                HorizontalAlignment="Right"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="2"
-                                MinWidth="26"
-                                MinHeight="26"
-                                Width="26"
-                                Height="26"
-                                Tag="{x:Bind}"
-                                ToolTipService.ToolTip="置顶到小窗"
-                                Click="TodoCardPin_Click">
-                            <Viewbox Width="14" Height="14"
-                                     HorizontalAlignment="Center"
-                                     VerticalAlignment="Center">
-                                <SymbolIcon Symbol="Pin"
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Viewbox>
-                        </Button>
-                        <Border Grid.Column="3"
-                                VerticalAlignment="Center"
-                                HorizontalAlignment="Right"
-                                Padding="8,4"
-                                CornerRadius="6"
-                                MinWidth="44">
-                            <Border.Background>
-                                <SolidColorBrush Color="{x:Bind PriorityEndColor, Mode=OneWay}"/>
-                            </Border.Background>
-                            <TextBlock Text="{x:Bind PriorityDisplayName, Mode=OneWay}"
-                                       FontSize="12"
-                                       FontWeight="SemiBold"
-                                       Foreground="White"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"/>
-                        </Border>
+                        <ScrollViewer Grid.Column="1"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel Orientation="Vertical"
+                                        VerticalAlignment="Center"
+                                        Spacing="4">
+                                <TextBlock Text="{x:Bind Title}"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="NoWrap"
+                                           MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{x:Bind Content}"
+                                           FontSize="13"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="NoWrap"
+                                           MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <muxc:ItemsRepeater IsHitTestVisible="False"
+                                                    ItemsSource="{x:Bind Tags, Mode=OneWay}"
+                                                    HorizontalAlignment="Left">
+                                    <muxc:ItemsRepeater.Layout>
+                                        <uihelpers:FlowWrapLayout HorizontalSpacing="6" VerticalSpacing="4"/>
+                                    </muxc:ItemsRepeater.Layout>
+                                    <muxc:ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="x:String">
+                                            <Border MinHeight="20"
+                                                    CornerRadius="10"
+                                                    Padding="8,2"
+                                                    HorizontalAlignment="Left"
+                                                    MaxWidth="220"
+                                                    Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneTime}"
+                                                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                                    BorderThickness="1"
+                                                    ToolTipService.ToolTip="{x:Bind Mode=OneTime}">
+                                                <TextBlock Text="{x:Bind Mode=OneTime}"
+                                                           FontSize="11"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#FFFFFFFF"
+                                                           VerticalAlignment="Center"
+                                                           TextWrapping="NoWrap"
+                                                           MaxLines="1"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </muxc:ItemsRepeater.ItemTemplate>
+                                </muxc:ItemsRepeater>
+                                <TextBlock Text="{x:Bind DueDateText}"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="NoWrap"
+                                           MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </ScrollViewer>
+                        <StackPanel Grid.Column="2"
+                                    Orientation="Horizontal"
+                                    VerticalAlignment="Center"
+                                    Spacing="8">
+                            <Button VerticalAlignment="Center"
+                                    HorizontalAlignment="Right"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="2"
+                                    MinWidth="26"
+                                    MinHeight="26"
+                                    Width="26"
+                                    Height="26"
+                                    Tag="{x:Bind}"
+                                    ToolTipService.ToolTip="置顶到小窗"
+                                    Click="TodoCardPin_Click">
+                                <Viewbox Width="14" Height="14"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center">
+                                    <SymbolIcon Symbol="Pin"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </Viewbox>
+                            </Button>
+                            <Border VerticalAlignment="Center"
+                                    HorizontalAlignment="Right"
+                                    Padding="8,4"
+                                    CornerRadius="6">
+                                <Border.Background>
+                                    <SolidColorBrush Color="{x:Bind PriorityEndColor, Mode=OneWay}"/>
+                                </Border.Background>
+                                <TextBlock Text="{x:Bind PriorityDisplayName, Mode=OneWay}"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="White"
+                                           TextWrapping="NoWrap"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
                     </Grid>
-                    <TextBlock Grid.Row="1"
-                               Margin="0,6,0,0"
-                               Text="{x:Bind Title}"
-                               FontSize="16"
-                               FontWeight="SemiBold"
-                               TextWrapping="NoWrap"
-                               MaxLines="1"
-                               TextTrimming="CharacterEllipsis"/>
-                    <TextBlock Grid.Row="2"
-                               Margin="0,4,0,0"
-                               Text="{x:Bind Content}"
-                               FontSize="13"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextWrapping="NoWrap"
-                               MaxLines="1"
-                               TextTrimming="CharacterEllipsis"/>
-                    <StackPanel Grid.Row="3"
-                                Orientation="Vertical"
-                                VerticalAlignment="Bottom"
-                                Spacing="2">
-                        <muxc:ItemsRepeater IsHitTestVisible="False"
-                                            ItemsSource="{x:Bind Tags, Mode=OneWay}"
-                                            HorizontalAlignment="Left">
-                            <muxc:ItemsRepeater.Layout>
-                                <uihelpers:FlowWrapLayout HorizontalSpacing="6" VerticalSpacing="4"/>
-                            </muxc:ItemsRepeater.Layout>
-                            <muxc:ItemsRepeater.ItemTemplate>
-                                <DataTemplate x:DataType="x:String">
-                                    <Border MinHeight="22"
-                                            CornerRadius="11"
-                                            Padding="8,3"
-                                            HorizontalAlignment="Left"
-                                            MaxWidth="280"
-                                            Background="{x:Bind Converter={StaticResource TagNameToBrushConverter}, Mode=OneTime}"
-                                            BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                            BorderThickness="1"
-                                            ToolTipService.ToolTip="{x:Bind Mode=OneTime}">
-                                        <TextBlock Text="{x:Bind Mode=OneTime}"
-                                                   FontSize="11"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="#FFFFFFFF"
-                                                   VerticalAlignment="Center"
-                                                   TextWrapping="NoWrap"
-                                                   MaxLines="1"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                    </Border>
-                                </DataTemplate>
-                            </muxc:ItemsRepeater.ItemTemplate>
-                        </muxc:ItemsRepeater>
-
-                        <TextBlock Text="{x:Bind DueDateText}"
-                                   FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
+                </Border>
             </Grid>
         </DataTemplate>
     </Page.Resources>
@@ -204,10 +346,12 @@
               PointerCaptureLost="ToDoListHost_PointerCaptureLost">
             <ScrollViewer x:Name="ToDoScrollViewer"
                           VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled">
+                          HorizontalScrollBarVisibility="Disabled"
+                          HorizontalContentAlignment="Stretch">
                 <!-- 顶部留白：首行卡片 hover 上移 + 缩放时仍落在可绘区域内，避免上边框被 ScrollViewer 裁切 -->
                 <Grid Padding="0,16,0,0">
                     <muxc:ItemsRepeater x:Name="ToDoRepeater"
+                                        HorizontalAlignment="Stretch"
                                         ItemTemplate="{StaticResource ToDoCardTemplate}">
                         <muxc:ItemsRepeater.Layout>
                             <muxc:UniformGridLayout MinItemWidth="220"

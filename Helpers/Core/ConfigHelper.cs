@@ -18,6 +18,10 @@ namespace CourseList.Helpers
         // 是否在关闭窗口时弹出提示：true = 提示；false = 不再提示
         public bool ClosePromptEnabled { get; set; } = true;
 
+        // 置顶待办窗口默认宽高（DIP，跨 DPI 一致）
+        public double TodoPinWindowWidthDip { get; set; } = 500;
+        public double TodoPinWindowHeightDip { get; set; } = 500;
+
         // 课程表显示范围：5=周一到周五，7=周一到周日
         public int ScheduleWeekRange { get; set; } = 7;
 
@@ -160,6 +164,8 @@ namespace CourseList.Helpers
     {
         private const int MaxPeriodCount = 20;
         private const int MaxSemesterWeeks = 30;
+        private const double MaxTodoPinWindowWidthDip = 1600;
+        private const double MaxTodoPinWindowHeightDip = 1600;
 
         private static readonly object _cacheLock = new object();
         private static string? _cachedSchemeId;
@@ -228,7 +234,9 @@ namespace CourseList.Helpers
             {
                 Theme = global.Theme,
                 MinimizeToTrayOnClose = global.MinimizeToTrayOnClose,
-                ClosePromptEnabled = global.ClosePromptEnabled
+                ClosePromptEnabled = global.ClosePromptEnabled,
+                TodoPinWindowWidthDip = global.TodoPinWindowWidthDip,
+                TodoPinWindowHeightDip = global.TodoPinWindowHeightDip
             };
         }
 
@@ -258,6 +266,8 @@ namespace CourseList.Helpers
                 Theme = global.Theme,
                 MinimizeToTrayOnClose = global.MinimizeToTrayOnClose,
                 ClosePromptEnabled = global.ClosePromptEnabled,
+                TodoPinWindowWidthDip = global.TodoPinWindowWidthDip,
+                TodoPinWindowHeightDip = global.TodoPinWindowHeightDip,
                 ScheduleWeekRange = scheme.ScheduleWeekRange,
                 PeriodCount = scheme.PeriodCount,
                 SemesterStartMonday = scheme.SemesterStartMonday,
@@ -279,7 +289,9 @@ namespace CourseList.Helpers
                 {
                     Theme = normalized.Theme,
                     MinimizeToTrayOnClose = normalized.MinimizeToTrayOnClose,
-                    ClosePromptEnabled = normalized.ClosePromptEnabled
+                    ClosePromptEnabled = normalized.ClosePromptEnabled,
+                    TodoPinWindowWidthDip = normalized.TodoPinWindowWidthDip,
+                    TodoPinWindowHeightDip = normalized.TodoPinWindowHeightDip
                 });
 
                 var currentId = SchemeHelper.GetCurrentSchemeId();
@@ -321,6 +333,8 @@ namespace CourseList.Helpers
                 Theme = config.Theme,
                 MinimizeToTrayOnClose = config.MinimizeToTrayOnClose,
                 ClosePromptEnabled = config.ClosePromptEnabled,
+                TodoPinWindowWidthDip = config.TodoPinWindowWidthDip,
+                TodoPinWindowHeightDip = config.TodoPinWindowHeightDip,
                 ScheduleWeekRange = config.ScheduleWeekRange,
                 PeriodCount = config.PeriodCount,
                 SemesterStartMonday = config.SemesterStartMonday,
@@ -371,6 +385,16 @@ namespace CourseList.Helpers
             config.SemesterStartMonday = NormalizeToMonday(config.SemesterStartMonday);
 
             config.PeriodTimeRanges ??= new List<PeriodTimeRange>();
+
+            if (config.TodoPinWindowWidthDip <= 0)
+                config.TodoPinWindowWidthDip = 500;
+            else if (config.TodoPinWindowWidthDip > MaxTodoPinWindowWidthDip)
+                config.TodoPinWindowWidthDip = MaxTodoPinWindowWidthDip;
+
+            if (config.TodoPinWindowHeightDip <= 0)
+                config.TodoPinWindowHeightDip = 500;
+            else if (config.TodoPinWindowHeightDip > MaxTodoPinWindowHeightDip)
+                config.TodoPinWindowHeightDip = MaxTodoPinWindowHeightDip;
 
             // 将可能的 null 元素替换为 ""，避免后续 UI 绑定时报错
             for (int i = 0; i < config.PeriodTimeRanges.Count; i++)

@@ -4,7 +4,7 @@
       "Id": 2,
       "Title": "2",
       "Completed": true,
-      "Content": "2222222222222222222222222222222222222222222222222222222222222222",
+      "Content": "222222222222222222222222222222222222222222\r2222222222222222222222",
       "DueDate": "2026-04-06T00:00:00",
       "Priority": "Medium",
       "Tags": [
@@ -30,7 +30,7 @@
     {
       "Id": 3,
       "Title": "3",
-      "Completed": false,
+      "Completed": true,
       "Content": "",
       "DueDate": "2026-04-08T00:00:00",
       "Priority": "Medium",
@@ -39,7 +39,7 @@
     {
       "Id": 4,
       "Title": "4",
-      "Completed": false,
+      "Completed": true,
       "Content": "",
       "DueDate": "2026-04-08T00:00:00",
       "Priority": "Medium",
@@ -52,7 +52,27 @@
       "Content": "已在你的文件里直接改完这 5 个问题（并重新编译通过）。\r\r（1）小窗仍可自由调整大小\r在 TodoPinWindow 构造函数里把 presenter 设置为不可调整大小：\r\r位置：Views/TodoPinWindow.xaml.cs，if (_appWindow.Presenter is OverlappedPresenter op) 这段\r\r现在是：\r\rop.IsResizable = false;\r\rop.IsMaximizable = false;\r\r这样窗口无法拖拽改变大小（也不能最大化）。\r\r（2）标记已完成导致主程序所有待办都完成\r我把置顶窗里写回 JSON 的逻辑改成 只替换目标那一条，并且用新 ToDoItem 实例写回，避免任何潜在引用共享/序列化异常带来的“全体完成”。\r\r位置：TodoPinViewPage.CompletedCheckBox_Changed\r改动：不再对原 todos 列表里对象直接 target.Completed = ...，而是构造 updated 列表，只对匹配 _todoId 的那一项换成新对象，然后 SaveToDosAsync(updated)。\r（3）不需要显示“内容”两个字\r已移除“内容”标题的显示（不再加入 grid.Children，并把 _contentLabel.Visibility = Collapsed）。\r（4）没有截止日期的不显示\r在 LoadTodoAsync 里判断：\r\r有 DueDate：显示 _dueDateText 并赋值\r\r无 DueDate：_dueDateText.Visibility = Collapsed 且清空文本\r\r（5）标签横向显示\r把 _tagsPanel 改为：\r\rnew StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }\r\r所以标签会从左到右排列（不再一行一个竖排）。\r\r另外你问的“窗口大小参数位置”仍然在同文件顶部：\r\rprivate const double InitialClientWidthDip = 600;\rprivate const double InitialClientHeightDip = 800;\r你改这两个常量就会改变小窗初始客户区大小。",
       "DueDate": null,
       "Priority": "Medium",
-      "Tags": []
+      "Tags": [
+        "exam",
+        "study"
+      ]
+    },
+    {
+      "Id": 6,
+      "Title": "666",
+      "Completed": true,
+      "Content": "",
+      "DueDate": "2026-04-15T00:00:00",
+      "Priority": "Highest",
+      "Tags": [
+        "exam",
+        "exercise",
+        "life",
+        "study",
+        "test",
+        "urgent",
+        "work"
+      ]
     }
   ],
   "TagLibrary": [

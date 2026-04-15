@@ -5,3 +5,7 @@
 bin/
 obj/
 schemes/
+AppPackages/
+Properties/
+CourseList_TemporaryKey.pfx
+BundleArtifacts/

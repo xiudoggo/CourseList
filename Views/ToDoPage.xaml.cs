@@ -26,6 +26,7 @@ namespace CourseList.Views
         private ToDoItem? _selectedToDo;
         private Border? _selectedCard;
         private readonly Thickness _desktopPadding = new Thickness(20);
+        private bool _isCompactMode;
 
         private Point _pressPointInRepeater;
         private bool _pressActive;
@@ -106,7 +107,39 @@ namespace CourseList.Views
             if (ToDoMainGrid == null)
                 return;
 
+            _isCompactMode = isCompact;
             ToDoMainGrid.Margin = isCompact ? new Thickness(12) : _desktopPadding;
+            ApplyTodoListLayoutMode();
+        }
+
+        private void ApplyTodoListLayoutMode()
+        {
+            if (ToDoRepeater == null)
+                return;
+
+            if (_isCompactMode)
+            {
+                if (Resources["ToDoCardCompactTemplate"] is DataTemplate compactTemplate)
+                    ToDoRepeater.ItemTemplate = compactTemplate;
+                ToDoRepeater.Layout = new StackLayout
+                {
+                    Orientation = Orientation.Vertical,
+                    Spacing = 12
+                };
+            }
+            else
+            {
+                if (Resources["ToDoCardTemplate"] is DataTemplate desktopTemplate)
+                    ToDoRepeater.ItemTemplate = desktopTemplate;
+                ToDoRepeater.Layout = new UniformGridLayout
+                {
+                    MinItemWidth = 220,
+                    MinItemHeight = 180,
+                    MinColumnSpacing = 12,
+                    MinRowSpacing = 12,
+                    ItemsStretch = UniformGridLayoutItemsStretch.Fill
+                };
+            }
         }
 
         private async Task LoadToDosAsync()

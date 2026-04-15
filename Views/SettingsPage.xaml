@@ -27,9 +27,12 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="260"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
@@ -81,8 +84,8 @@
                             Click="OpenImportButton_Click"/>
                 </StackPanel>
 
-                <!-- 右列：课程表功能设置 -->
-                <StackPanel x:Name="SettingsRightPanel" Grid.Column="1" HorizontalAlignment="Left">
+                <!-- 中列：课程表功能设置 -->
+                <StackPanel x:Name="SettingsRightPanel" Grid.Column="1" HorizontalAlignment="Left" Margin="22,0,0,0">
                     <TextBlock Text="课程表功能设置" Style="{StaticResource SettingsTitleStyle}"/>
 
                     <TextBlock Text="设置学期起始周日期" Style="{StaticResource SettingsSectionLabelStyle}"/>
@@ -135,6 +138,24 @@
                             Click="ConfirmPeriodChanges_Click"
                             Width="240"
                             HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <!-- 右列：待办置顶窗口 -->
+                <StackPanel x:Name="SettingsThirdPanel" Grid.Column="2" HorizontalAlignment="Left" Margin="22,0,0,0">
+                    <TextBlock Text="待办置顶窗口"
+                               Style="{StaticResource SettingsTitleStyle}"
+                               TextWrapping="Wrap"
+                               MaxWidth="220"/>
+                    <TextBlock Text="置顶待办窗口"
+                               Style="{StaticResource SettingsSectionLabelStyle}"
+                               Margin="0,0,0,8"
+                               TextWrapping="Wrap"
+                               MaxWidth="220"/>
+                    <Button x:Name="AdjustTodoPinWindowSizeButton"
+                            Content="调整置顶待办窗口大小"
+                            Width="240"
+                            HorizontalAlignment="Left"
+                            Click="AdjustTodoPinWindowSizeButton_Click"/>
                 </StackPanel>
             </Grid>
         </ScrollViewer>

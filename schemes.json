@@ -2,6 +2,8 @@
   "Theme": "Light",
   "MinimizeToTrayOnClose": false,
   "ClosePromptEnabled": false,
+  "TodoPinWindowWidthDip": 336,
+  "TodoPinWindowHeightDip": 333.5,
   "CurrentSchemeId": "445e37b5dfd741399a0120a897361ab4",
   "Schemes": [
     {

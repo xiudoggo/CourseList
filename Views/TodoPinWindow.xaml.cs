@@ -22,6 +22,8 @@ namespace CourseList.Views;
 
 public sealed partial class TodoPinWindow : Window
 {
+    private const double DefaultClientWidthDip = 500;
+    private const double DefaultClientHeightDip = 500;
     private static readonly HashSet<TodoPinWindow> s_openWindows = new();
     private static readonly object s_openWindowsLock = new();
     private static (TodoPinWindow Window, TabViewItem Tab, int TodoId)? s_dragContext;
@@ -44,10 +46,17 @@ public sealed partial class TodoPinWindow : Window
 
     /// <summary>关闭或 Dispose 后为 true，避免向已关闭窗追加 Tab。</summary>
     public bool IsDisposed { get; private set; }
+    private readonly bool _isSizingMode;
+    private readonly Action<double, double>? _onSizingConfirmed;
 
-    public TodoPinWindow(bool autoActivate = true)
+    public TodoPinWindow(
+        bool autoActivate = true,
+        bool isSizingMode = false,
+        Action<double, double>? onSizingConfirmed = null)
     {
         InitializeComponent();
+        _isSizingMode = isSizingMode;
+        _onSizingConfirmed = onSizingConfirmed;
         ThemeHelper.RegisterPinWindow(this);
 
         ExtendsContentIntoTitleBar = true;
@@ -64,8 +73,8 @@ public sealed partial class TodoPinWindow : Window
             if (_appWindow.Presenter is OverlappedPresenter op)
             {
                 op.IsAlwaysOnTop = true;
-                op.IsResizable = false;
-                op.IsMaximizable = false;
+                op.IsResizable = _isSizingMode;
+                op.IsMaximizable = _isSizingMode;
                 op.IsMinimizable = false;
                 // Hide system title bar (keep border).
                 op.SetBorderAndTitleBar(true, false);
@@ -94,7 +103,7 @@ public sealed partial class TodoPinWindow : Window
         {
             TodoPinWindowManager.NotifyWindowActivated(this);
             if (args.WindowActivationState != WindowActivationState.Deactivated)
-                TryApplyClientSize500();
+                TryApplyConfiguredClientSize();
         };
         Closed += (_, _) =>
         {
@@ -105,6 +114,12 @@ public sealed partial class TodoPinWindow : Window
             TodoPinWindowManager.NotifyWindowClosed(this);
             UnregisterAllTabs();
         };
+
+        if (_isSizingMode)
+        {
+            RootTabView.Visibility = Visibility.Collapsed;
+            SizingOverlay.Visibility = Visibility.Visible;
+        }
 
         ApplyThemeFromMain();
         RootTabView.Loaded += RootTabView_Loaded;
@@ -122,7 +137,7 @@ public sealed partial class TodoPinWindow : Window
     private void RootTabView_Loaded(object sender, RoutedEventArgs e)
     {
         ApplyThemeFromMain();
-        TryApplyClientSize500();
+        TryApplyConfiguredClientSize();
         try
         {
             // 延后注册拖动矩形，避免首次布局时区域大小为 0。
@@ -131,6 +146,13 @@ public sealed partial class TodoPinWindow : Window
         catch
         {
             // ignore
+        }
+
+        if (_isSizingMode && _appWindow != null)
+        {
+            _appWindow.Changed -= AppWindow_Changed;
+            _appWindow.Changed += AppWindow_Changed;
+            UpdateSizingPreviewText();
         }
     }
 
@@ -170,32 +192,66 @@ public sealed partial class TodoPinWindow : Window
         e.Handled = true;
     }
 
-    private const double InitialClientWidthDip = 500;
-    private const double InitialClientHeightDip = 500;
-    /// <summary>客户区初始约 500×500（以 DIP 为单位）。</summary>
-    private void TryApplyClientSize500()
+    private static (double WidthDip, double HeightDip) GetConfiguredSizeDip()
     {
-        if (_sizeApplied || _appWindow == null)
-            return;
         try
         {
-            double scale = RootTabView.XamlRoot?.RasterizationScale ?? 1.0;
-            int w = (int)Math.Round(InitialClientWidthDip * scale);
-            int h = (int)Math.Round(InitialClientHeightDip * scale);
+            var cfg = ConfigHelper.LoadConfig();
+            return (cfg.TodoPinWindowWidthDip, cfg.TodoPinWindowHeightDip);
+        }
+        catch
+        {
+            return (DefaultClientWidthDip, DefaultClientHeightDip);
+        }
+    }
 
-            // 与示例一致：调整客户区（物理像素）
-            _appWindow.ResizeClient(new SizeInt32 { Width = w, Height = h });
-            _sizeApplied = true;
+    private (double WidthDip, double HeightDip) GetCurrentWindowSizeDip()
+    {
+        try
+        {
+            if (_appWindow != null)
+            {
+                double scale = WindowInteropHelper.GetPixelPerDip(_hwnd);
+                if (scale <= 0)
+                    scale = 1.0;
+                // 统一使用“窗口外框尺寸”口径（AppWindow.Size），避免 client/window 混用导致高度多出约标题栏边框。
+                return (_appWindow.Size.Width / scale, _appWindow.Size.Height / scale);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        var configured = GetConfiguredSizeDip();
+        return configured;
+    }
+
+    private void ResizeWindowByDip(double widthDip, double heightDip)
+    {
+        if (_appWindow == null)
+            return;
+
+        try
+        {
+            double scale = WindowInteropHelper.GetPixelPerDip(_hwnd);
+            if (scale <= 0)
+                scale = 1.0;
+            int w = (int)Math.Round(widthDip * scale);
+            int h = (int)Math.Round(heightDip * scale);
+            // 使用“窗口外框尺寸”应用，保持与保存时同一口径。
+            _appWindow.Resize(new SizeInt32 { Width = w, Height = h });
         }
         catch
         {
             try
             {
-                double scale = RootTabView.XamlRoot?.RasterizationScale ?? 1.0;
-                int w = (int)Math.Round(InitialClientWidthDip * scale);
-                int h = (int)Math.Round(InitialClientHeightDip * scale);
+                double scale = WindowInteropHelper.GetPixelPerDip(_hwnd);
+                if (scale <= 0)
+                    scale = 1.0;
+                int w = (int)Math.Round(widthDip * scale);
+                int h = (int)Math.Round(heightDip * scale);
                 _appWindow?.Resize(new SizeInt32 { Width = w, Height = h });
-                _sizeApplied = true;
             }
             catch
             {
@@ -204,8 +260,41 @@ public sealed partial class TodoPinWindow : Window
         }
     }
 
+    /// <summary>按配置应用客户区初始尺寸（DIP）。</summary>
+    private void TryApplyConfiguredClientSize()
+    {
+        if (_sizeApplied || _appWindow == null)
+            return;
+        var size = GetConfiguredSizeDip();
+        ResizeWindowByDip(size.WidthDip, size.HeightDip);
+        _sizeApplied = true;
+    }
+
     // Removed: window resizing clamps interfered with expected pointer behavior.
-    private void AppWindow_Changed(object sender, AppWindowChangedEventArgs args) { }
+    private void AppWindow_Changed(object sender, AppWindowChangedEventArgs args)
+    {
+        if (!_isSizingMode)
+            return;
+        _ = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            UpdateSizingPreviewText();
+        });
+    }
+
+    private void UpdateSizingPreviewText()
+    {
+        if (!_isSizingMode || SizingSizeText == null)
+            return;
+        var size = GetCurrentWindowSizeDip();
+        SizingSizeText.Text = $"当前尺寸: {Math.Round(size.WidthDip)} x {Math.Round(size.HeightDip)} DIP";
+    }
+
+    private void SizingConfirmButton_Click(object sender, RoutedEventArgs e)
+    {
+        var size = GetCurrentWindowSizeDip();
+        _onSizingConfirmed?.Invoke(size.WidthDip, size.HeightDip);
+        Close();
+    }
 
     // Removed: WM hook not required; we rely on presenter/maximizable settings.
     private IntPtr PinWindowWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam) => IntPtr.Zero;

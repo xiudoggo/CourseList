@@ -9,6 +9,10 @@
     <AppIconSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</AppIconSource>
     <SplashScreenSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</SplashScreenSource>
     <PackageLogoSource>E:\VS2022\Projects\CourseList\Assets\CourseListIco.png</PackageLogoSource>
+    <ActiveDebugProfile>CourseList (Package)</ActiveDebugProfile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <DebuggerFlavor>ProjectDebugger</DebuggerFlavor>
   </PropertyGroup>
   <ItemGroup>
     <None Update="App.xaml">

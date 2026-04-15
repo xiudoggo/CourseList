@@ -20,6 +20,8 @@ namespace CourseList.Helpers
         public string Theme { get; set; } = "Default";
         public bool MinimizeToTrayOnClose { get; set; } = false;
         public bool ClosePromptEnabled { get; set; } = true;
+        public double TodoPinWindowWidthDip { get; set; } = 500;
+        public double TodoPinWindowHeightDip { get; set; } = 500;
     }
 
     /// <summary>
@@ -162,6 +164,8 @@ namespace CourseList.Helpers
                     Theme = global.Theme,
                     MinimizeToTrayOnClose = global.MinimizeToTrayOnClose,
                     ClosePromptEnabled = global.ClosePromptEnabled,
+                    TodoPinWindowWidthDip = global.TodoPinWindowWidthDip,
+                    TodoPinWindowHeightDip = global.TodoPinWindowHeightDip,
                     CurrentSchemeId = currentSchemeId,
                     Schemes = schemes
                 };
@@ -194,6 +198,10 @@ namespace CourseList.Helpers
                     result.MinimizeToTrayOnClose = m.GetBoolean();
                 if (root.TryGetProperty("ClosePromptEnabled", out var c) && c.ValueKind is JsonValueKind.True or JsonValueKind.False)
                     result.ClosePromptEnabled = c.GetBoolean();
+                if (root.TryGetProperty("TodoPinWindowWidthDip", out var w) && w.ValueKind == JsonValueKind.Number)
+                    result.TodoPinWindowWidthDip = w.GetDouble();
+                if (root.TryGetProperty("TodoPinWindowHeightDip", out var h) && h.ValueKind == JsonValueKind.Number)
+                    result.TodoPinWindowHeightDip = h.GetDouble();
                 return result;
             }
             catch
@@ -250,6 +258,10 @@ namespace CourseList.Helpers
                     result.MinimizeToTrayOnClose = m.GetBoolean();
                 if (root.TryGetProperty("ClosePromptEnabled", out var c) && c.ValueKind is JsonValueKind.True or JsonValueKind.False)
                     result.ClosePromptEnabled = c.GetBoolean();
+                if (root.TryGetProperty("TodoPinWindowWidthDip", out var w) && w.ValueKind == JsonValueKind.Number)
+                    result.TodoPinWindowWidthDip = w.GetDouble();
+                if (root.TryGetProperty("TodoPinWindowHeightDip", out var h) && h.ValueKind == JsonValueKind.Number)
+                    result.TodoPinWindowHeightDip = h.GetDouble();
             }
             catch
             {
@@ -267,20 +279,26 @@ namespace CourseList.Helpers
                 bool hasTheme = false;
                 bool hasMinimize = false;
                 bool hasPrompt = false;
+                bool hasPinWidth = false;
+                bool hasPinHeight = false;
                 using (var doc = JsonDocument.Parse(File.ReadAllText(SchemesFilePath)))
                 {
                     var root = doc.RootElement;
                     hasTheme = root.TryGetProperty("Theme", out _);
                     hasMinimize = root.TryGetProperty("MinimizeToTrayOnClose", out _);
                     hasPrompt = root.TryGetProperty("ClosePromptEnabled", out _);
+                    hasPinWidth = root.TryGetProperty("TodoPinWindowWidthDip", out _);
+                    hasPinHeight = root.TryGetProperty("TodoPinWindowHeightDip", out _);
                 }
-                if (hasTheme && hasMinimize && hasPrompt)
+                if (hasTheme && hasMinimize && hasPrompt && hasPinWidth && hasPinHeight)
                     return;
 
                 var legacy = ReadLegacyGlobalSettings();
                 if (!hasTheme) global.Theme = legacy.Theme;
                 if (!hasMinimize) global.MinimizeToTrayOnClose = legacy.MinimizeToTrayOnClose;
                 if (!hasPrompt) global.ClosePromptEnabled = legacy.ClosePromptEnabled;
+                if (!hasPinWidth) global.TodoPinWindowWidthDip = legacy.TodoPinWindowWidthDip;
+                if (!hasPinHeight) global.TodoPinWindowHeightDip = legacy.TodoPinWindowHeightDip;
                 SaveGlobalSettings(global);
             }
             catch

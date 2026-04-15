@@ -45,12 +45,16 @@ namespace CourseList.Views
         private readonly Dictionary<int, TextBlock> _compactDayHeaderDateTextByCol = new();
         private readonly Dictionary<int, Canvas> _compactDayCanvasByCol = new();
         private const double CompactTimeColumnWidth = 46;
-        private const double CompactPeriodRowHeight = 56;
+        private const double CompactPeriodRowHeight = 68;
 
         // Compact mode adaptive sizing (only affects the compact container).
         private double _compactTimeColumnWidth = CompactTimeColumnWidth;
         private double _compactDayColumnWidth = 78;
         private double _lastCompactSizingWidth = double.NaN;
+        private double _lastDesktopRenderWidth = double.NaN;
+        private double _lastDesktopRenderHeight = double.NaN;
+        private bool _desktopRenderPending;
+        private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer? _desktopResizeRenderTimer;
 
         private List<WeekScheduleOverride> _weekOverrides = new();
         private Dictionary<(int courseId, int weekIndex), WeekScheduleOverride> _weekOverrideIndex = new();
@@ -90,11 +94,25 @@ namespace CourseList.Views
             // 小窗模式：随着窗口宽度变化需要重新分配紧凑容器列宽，确保周六/周日仍可完整显示。
             if (CompactScheduleContainer != null)
                 CompactScheduleContainer.SizeChanged += CompactScheduleContainer_SizeChanged;
+            if (DesktopScheduleBorder != null)
+                DesktopScheduleBorder.SizeChanged += DesktopScheduleBorder_SizeChanged;
+
+            _desktopResizeRenderTimer = DispatcherQueue?.CreateTimer();
+            if (_desktopResizeRenderTimer != null)
+            {
+                _desktopResizeRenderTimer.Interval = TimeSpan.FromMilliseconds(24);
+                _desktopResizeRenderTimer.IsRepeating = false;
+                _desktopResizeRenderTimer.Tick += DesktopResizeRenderTimer_Tick;
+            }
         }
 
         private void SchedulePage_Unloaded(object sender, RoutedEventArgs e)
         {
             SchemeHelper.SchemeChanged -= OnSchemeChanged;
+            if (CompactScheduleContainer != null)
+                CompactScheduleContainer.SizeChanged -= CompactScheduleContainer_SizeChanged;
+            if (DesktopScheduleBorder != null)
+                DesktopScheduleBorder.SizeChanged -= DesktopScheduleBorder_SizeChanged;
         }
 
         private void OnSchemeChanged(object? sender, EventArgs e)
@@ -234,6 +252,45 @@ namespace CourseList.Views
                         BuildScheduleGrid();
                 }
             });
+        }
+
+        private void DesktopScheduleBorder_SizeChanged(object sender, Microsoft.UI.Xaml.SizeChangedEventArgs e)
+        {
+            if (_isCompactMode || !_isPageLoaded)
+                return;
+
+            double w = e.NewSize.Width;
+            double h = e.NewSize.Height;
+            if (!double.IsNaN(_lastDesktopRenderWidth) &&
+                !double.IsNaN(_lastDesktopRenderHeight) &&
+                Math.Abs(w - _lastDesktopRenderWidth) < 6 &&
+                Math.Abs(h - _lastDesktopRenderHeight) < 6)
+            {
+                return;
+            }
+
+            _lastDesktopRenderWidth = w;
+            _lastDesktopRenderHeight = h;
+            _desktopRenderPending = true;
+            if (_desktopResizeRenderTimer == null)
+            {
+                if (_isCompactMode || !_isPageLoaded)
+                    return;
+                RenderDesktopBlocks();
+                _desktopRenderPending = false;
+                return;
+            }
+
+            _desktopResizeRenderTimer.Stop();
+            _desktopResizeRenderTimer.Start();
+        }
+
+        private void DesktopResizeRenderTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+        {
+            if (!_desktopRenderPending || _isCompactMode || !_isPageLoaded)
+                return;
+            _desktopRenderPending = false;
+            RenderDesktopBlocks();
         }
 
         private bool ApplyCompactAdaptiveSizing()
