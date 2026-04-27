@@ -72,7 +72,7 @@ namespace CourseList.Helpers
         {
             try
             {
-                var jsonPayload = JsonSerializer.Deserialize<string>(executeScriptRawResult) ?? string.Empty;
+                var jsonPayload = JsonSerializer.Deserialize(executeScriptRawResult, AppJsonSerializerContext.Default.String) ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(jsonPayload))
                 {
                     return new CourseImportParseResult
@@ -82,7 +82,7 @@ namespace CourseList.Helpers
                     };
                 }
 
-                var payload = JsonSerializer.Deserialize<ImportPayload>(jsonPayload);
+                var payload = JsonSerializer.Deserialize(jsonPayload, AppJsonSerializerContext.Default.ImportPayload);
                 if (payload == null)
                 {
                     return new CourseImportParseResult
@@ -134,7 +134,7 @@ namespace CourseList.Helpers
                 ParseRoomInfo(row.roomText, totalWeeks, out var fromWeek, out var toWeek, out var weekType, out var classroom);
                 var normalizedName = NormalizeCourseName(row.name);
                 var normalizedTeacher = NormalizeTeacher(row.teacher);
-                var normalizedColor = NormalizeColor(row.color);
+                var normalizedColor = NormalizeColor(row.color, $"{normalizedName}|{normalizedTeacher}");
                 if (row.begin <= 0 || row.end <= 0)
                     continue;
 
@@ -266,14 +266,14 @@ namespace CourseList.Helpers
             return (raw ?? string.Empty).Replace('\u00A0', ' ').Trim();
         }
 
-        private static string NormalizeColor(string raw)
+        private static string NormalizeColor(string raw, string seed)
         {
             var text = (raw ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(text))
-                return "#808080";
+                return PickPaletteColor(seed);
 
             if (Regex.IsMatch(text, "^#[0-9a-fA-F]{6}$"))
-                return EnsureReadableOnWhite(text.ToUpperInvariant());
+                return EnsureNiceCourseColor(text.ToUpperInvariant());
 
             var rgb = Regex.Match(text, @"rgb\s*\(\s*(?<r>\d+)\s*,\s*(?<g>\d+)\s*,\s*(?<b>\d+)\s*\)");
             if (rgb.Success)
@@ -281,31 +281,116 @@ namespace CourseList.Helpers
                 var r = Math.Clamp(SafeInt(rgb.Groups["r"].Value, 128), 0, 255);
                 var g = Math.Clamp(SafeInt(rgb.Groups["g"].Value, 128), 0, 255);
                 var b = Math.Clamp(SafeInt(rgb.Groups["b"].Value, 128), 0, 255);
-                return EnsureReadableOnWhite($"#{r:X2}{g:X2}{b:X2}");
+                return EnsureNiceCourseColor($"#{r:X2}{g:X2}{b:X2}");
             }
 
-            return "#808080";
+            return PickPaletteColor(string.IsNullOrWhiteSpace(seed) ? text : seed);
         }
 
-        private static string EnsureReadableOnWhite(string hex)
+        private static string EnsureNiceCourseColor(string hex)
         {
             if (!TryParseHexColor(hex, out var r, out var g, out var b))
                 return "#808080";
 
-            const double minContrastWithWhite = 4.5;
-            if (ContrastRatioWithWhite(r, g, b) >= minContrastWithWhite)
-                return $"#{r:X2}{g:X2}{b:X2}";
+            // 教务导入色往往偏暗/偏灰，这里做“适度提亮 + 提饱和”并限制亮度范围：
+            // - 不要太暗：避免整块看起来发黑
+            // - 不要太亮：避免完全变成浅色导致观感发白（文字颜色会在 UI 侧自动黑/白切换）
+            RgbToHsl(r, g, b, out var h, out var s, out var l);
 
-            for (int i = 0; i < 12; i++)
+            s = Math.Clamp(Math.Max(s, 0.58), 0.0, 0.92);
+            l = Math.Clamp(l, 0.48, 0.74);
+
+            HslToRgb(h, s, l, out r, out g, out b);
+            return $"#{r:X2}{g:X2}{b:X2}";
+        }
+
+        private static string PickPaletteColor(string seed)
+        {
+            // 更丰富、偏明亮的调色板（背景色）；最终文字颜色由 UI 自适配（黑/白）。
+            string[] palette =
             {
-                r = (int)Math.Round(r * 0.88);
-                g = (int)Math.Round(g * 0.88);
-                b = (int)Math.Round(b * 0.88);
-                if (ContrastRatioWithWhite(r, g, b) >= minContrastWithWhite)
-                    break;
+                "#4E79A7", "#59A14F", "#9C755F", "#F28E2B", "#EDC949",
+                "#76B7B2", "#E15759", "#AF7AA1", "#FF9DA7", "#B07AA1",
+                "#5DA5DA", "#60BD68", "#F17CB0", "#B2912F", "#B276B2",
+                "#DECF3F", "#F15854", "#4D4D4D"
+            };
+            int idx = StableHash(seed) % palette.Length;
+            if (idx < 0) idx += palette.Length;
+            return EnsureNiceCourseColor(palette[idx]);
+        }
+
+        private static int StableHash(string? text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return 0;
+            unchecked
+            {
+                int hash = 23;
+                foreach (char c in text)
+                    hash = (hash * 31) + c;
+                return hash;
+            }
+        }
+
+        private static void RgbToHsl(int r, int g, int b, out double h, out double s, out double l)
+        {
+            double rd = r / 255.0;
+            double gd = g / 255.0;
+            double bd = b / 255.0;
+            double max = Math.Max(rd, Math.Max(gd, bd));
+            double min = Math.Min(rd, Math.Min(gd, bd));
+
+            l = (max + min) / 2.0;
+            if (Math.Abs(max - min) < 1e-9)
+            {
+                h = 0;
+                s = 0;
+                return;
             }
 
-            return $"#{Math.Clamp(r, 0, 255):X2}{Math.Clamp(g, 0, 255):X2}{Math.Clamp(b, 0, 255):X2}";
+            double d = max - min;
+            s = l > 0.5 ? d / (2.0 - max - min) : d / (max + min);
+
+            if (Math.Abs(max - rd) < 1e-9)
+                h = (gd - bd) / d + (gd < bd ? 6.0 : 0.0);
+            else if (Math.Abs(max - gd) < 1e-9)
+                h = (bd - rd) / d + 2.0;
+            else
+                h = (rd - gd) / d + 4.0;
+
+            h /= 6.0;
+        }
+
+        private static void HslToRgb(double h, double s, double l, out int r, out int g, out int b)
+        {
+            double rd, gd, bd;
+
+            if (s <= 1e-9)
+            {
+                rd = gd = bd = l;
+            }
+            else
+            {
+                double q = l < 0.5 ? l * (1.0 + s) : (l + s - l * s);
+                double p = 2.0 * l - q;
+                rd = HueToRgb(p, q, h + 1.0 / 3.0);
+                gd = HueToRgb(p, q, h);
+                bd = HueToRgb(p, q, h - 1.0 / 3.0);
+            }
+
+            r = (int)Math.Round(Math.Clamp(rd, 0, 1) * 255);
+            g = (int)Math.Round(Math.Clamp(gd, 0, 1) * 255);
+            b = (int)Math.Round(Math.Clamp(bd, 0, 1) * 255);
+        }
+
+        private static double HueToRgb(double p, double q, double t)
+        {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+            if (t < 1.0 / 2.0) return q;
+            if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+            return p;
         }
 
         private static bool TryParseHexColor(string hex, out int r, out int g, out int b)
@@ -325,27 +410,6 @@ namespace CourseList.Helpers
             {
                 return false;
             }
-        }
-
-        private static double ContrastRatioWithWhite(int r, int g, int b)
-        {
-            var luminance = RelativeLuminance(r, g, b);
-            return (1.0 + 0.05) / (luminance + 0.05);
-        }
-
-        private static double RelativeLuminance(int r, int g, int b)
-        {
-            var rs = SrgbToLinear(r / 255.0);
-            var gs = SrgbToLinear(g / 255.0);
-            var bs = SrgbToLinear(b / 255.0);
-            return (0.2126 * rs) + (0.7152 * gs) + (0.0722 * bs);
-        }
-
-        private static double SrgbToLinear(double value)
-        {
-            if (value <= 0.03928)
-                return value / 12.92;
-            return Math.Pow((value + 0.055) / 1.055, 2.4);
         }
     }
 }

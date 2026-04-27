@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -11,17 +10,11 @@ namespace CourseList.Helpers
 {
     public static class ToDoDataHelper
     {
-        private sealed class ToDoStorage
+        internal sealed class ToDoStorage
         {
             public List<ToDoItem> Todos { get; set; } = new();
             public List<string> TagLibrary { get; set; } = new();
         }
-
-        private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        };
 
         private static string GetToDoFilePath() => PathHelper.GetFullPath("todos.json");
 
@@ -43,14 +36,14 @@ namespace CourseList.Helpers
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
                 {
                     // Backward compatible: old format is just `ToDoItem[]`
-                    storage.Todos = JsonSerializer.Deserialize<List<ToDoItem>>(json, _jsonOptions) ?? new List<ToDoItem>();
+                    storage.Todos = JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.ListToDoItem) ?? new List<ToDoItem>();
                     storage.TagLibrary = ExtractTagLibraryFromTodos(storage.Todos);
                     return true;
                 }
 
                 if (doc.RootElement.ValueKind == JsonValueKind.Object)
                 {
-                    storage = JsonSerializer.Deserialize<ToDoStorage>(json, _jsonOptions) ?? new ToDoStorage();
+                    storage = JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.ToDoStorage) ?? new ToDoStorage();
                     storage.Todos ??= new List<ToDoItem>();
                     storage.TagLibrary ??= new List<string>();
                     if (storage.TagLibrary.Count == 0 && storage.Todos.Count > 0)
@@ -97,7 +90,7 @@ namespace CourseList.Helpers
 
                 // Fallback: old array format
                 var json = await File.ReadAllTextAsync(path);
-                return JsonSerializer.Deserialize<List<ToDoItem>>(json, _jsonOptions) ?? new List<ToDoItem>();
+                return JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.ListToDoItem) ?? new List<ToDoItem>();
             }
             catch
             {
@@ -116,7 +109,7 @@ namespace CourseList.Helpers
                 storage.Todos = todos ?? new List<ToDoItem>();
                 storage.TagLibrary ??= new List<string>();
 
-                string json = JsonSerializer.Serialize(storage, _jsonOptions);
+                string json = JsonSerializer.Serialize(storage, AppJsonSerializerContext.Default.ToDoStorage);
                 await File.WriteAllTextAsync(path, json);
             }
             catch
@@ -154,7 +147,7 @@ namespace CourseList.Helpers
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList() ?? new List<string>();
 
-                string json = JsonSerializer.Serialize(storage, _jsonOptions);
+                string json = JsonSerializer.Serialize(storage, AppJsonSerializerContext.Default.ToDoStorage);
                 await File.WriteAllTextAsync(path, json);
             }
             catch

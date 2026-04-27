@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 
 using Microsoft.UI.Xaml.Input;
 using System;
+using System.Diagnostics;
+using System.IO;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -456,6 +458,11 @@ namespace CourseList.Views
                 RefreshSchemeComboBox();
                 SystemNotificationHelper.ShowSilent("课表方案", $"已删除「{targetScheme.Name}」");
             }
+            else
+            {
+                // 删除失败时：通常是目录被占用（文件句柄未释放等）。提示用户稍后重试。
+                ShowToast($"删除「{targetScheme.Name}」失败，方案目录可能仍在被占用。请稍后再试。");
+            }
         }
 
         private void OpenImportButton_Click(object sender, RoutedEventArgs e)
@@ -821,6 +828,33 @@ namespace CourseList.Views
                 });
             };
             _sizingPreviewWindow.EnsureActivated();
+        }
+
+        private void OpenDataFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var folder = PathHelper.BaseFolder;
+                if (string.IsNullOrWhiteSpace(folder))
+                {
+                    ShowToast("数据目录不可用");
+                    return;
+                }
+
+                if (!Directory.Exists(folder))
+                    Directory.CreateDirectory(folder);
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"\"{folder}\"",
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                ShowToast($"打开数据目录失败: {ex.Message}");
+            }
         }
 
         private void MinimizeToTrayRadio_Checked(object sender, RoutedEventArgs e)

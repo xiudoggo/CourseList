@@ -156,6 +156,12 @@
                             Width="240"
                             HorizontalAlignment="Left"
                             Click="AdjustTodoPinWindowSizeButton_Click"/>
+                    <Button x:Name="OpenDataFolderButton"
+                            Content="打开数据目录"
+                            Width="240"
+                            Margin="0,8,0,0"
+                            HorizontalAlignment="Left"
+                            Click="OpenDataFolderButton_Click"/>
                 </StackPanel>
             </Grid>
         </ScrollViewer>

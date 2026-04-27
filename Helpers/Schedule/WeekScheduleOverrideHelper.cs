@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using CourseList.Models;
 
@@ -11,13 +10,6 @@ namespace CourseList.Helpers
 {
     public static class WeekScheduleOverrideHelper
     {
-        private static readonly JsonSerializerOptions JsonOptions = new()
-        {
-            WriteIndented = true,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
-        };
-
         public static async Task<List<WeekScheduleOverride>> LoadAsync(string? schemeId = null)
         {
             schemeId ??= SchemeHelper.GetCurrentSchemeId();
@@ -31,7 +23,7 @@ namespace CourseList.Helpers
             try
             {
                 var json = await File.ReadAllTextAsync(path);
-                var list = JsonSerializer.Deserialize<List<WeekScheduleOverride>>(json, JsonOptions);
+                var list = JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.ListWeekScheduleOverride);
                 return list ?? new List<WeekScheduleOverride>();
             }
             catch
@@ -56,7 +48,7 @@ namespace CourseList.Helpers
                 Directory.CreateDirectory(folder);
 
             var path = SchemeHelper.GetSchemeWeekOverridesPath(schemeId);
-            var json = JsonSerializer.Serialize(overrides ?? new List<WeekScheduleOverride>(), JsonOptions);
+            var json = JsonSerializer.Serialize(overrides ?? new List<WeekScheduleOverride>(), AppJsonSerializerContext.Default.ListWeekScheduleOverride);
             await File.WriteAllTextAsync(path, json);
         }
 

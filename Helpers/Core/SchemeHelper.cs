@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace CourseList.Helpers
@@ -29,17 +28,31 @@ namespace CourseList.Helpers
     /// </summary>
     public static class SchemeHelper
     {
+        internal sealed class SchemeConfigSeed
+        {
+            public int ScheduleWeekRange { get; set; } = 7;
+            public int PeriodCount { get; set; } = 11;
+            public DateTime SemesterStartMonday { get; set; } = DateTime.Today;
+            public int SemesterTotalWeeks { get; set; } = 20;
+            public List<PeriodTimeRange> PeriodTimeRanges { get; set; } = new();
+        }
+
+        internal sealed class SchemesFileData
+        {
+            public string Theme { get; set; } = "Default";
+            public bool MinimizeToTrayOnClose { get; set; }
+            public bool ClosePromptEnabled { get; set; } = true;
+            public double TodoPinWindowWidthDip { get; set; } = 500;
+            public double TodoPinWindowHeightDip { get; set; } = 500;
+            public string CurrentSchemeId { get; set; } = string.Empty;
+            public List<SchemeInfo> Schemes { get; set; } = new();
+        }
+
         private static readonly string SchemesFilePath = PathHelper.GetFullPath("schemes.json");
         private static readonly string SchemesFolder = PathHelper.GetFullPath("schemes");
         private static readonly string LegacyConfigPath = PathHelper.GetFullPath("config.json");
         private static readonly string LegacyCoursesPath = PathHelper.GetFullPath("courses.json");
         private static bool _migrationChecked;
-        private static readonly JsonSerializerOptions _jsonOptions = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        };
-
         /// <summary>
         /// 首次运行或从旧版迁移：若无 schemes.json 则从 config.json + courses.json 创建默认方案
         /// </summary>
@@ -68,15 +81,8 @@ namespace CourseList.Helpers
             else
             {
                 var cfgPath = GetSchemeConfigPath(newId);
-                var defaultCfg = new
-                {
-                    ScheduleWeekRange = 7,
-                    PeriodCount = 11,
-                    SemesterStartMonday = DateTime.Today,
-                    SemesterTotalWeeks = 20,
-                    PeriodTimeRanges = new List<object>()
-                };
-                File.WriteAllText(cfgPath, JsonSerializer.Serialize(defaultCfg, new JsonSerializerOptions { WriteIndented = true }));
+                var defaultCfg = new SchemeConfigSeed();
+                File.WriteAllText(cfgPath, JsonSerializer.Serialize(defaultCfg, AppJsonSerializerContext.Default.SchemeConfigSeed));
             }
 
             if (File.Exists(LegacyCoursesPath))
@@ -159,7 +165,7 @@ namespace CourseList.Helpers
             {
                 EnsureMigrated();
                 PathHelper.EnsureFolderExists();
-                var obj = new
+                var obj = new SchemesFileData
                 {
                     Theme = global.Theme,
                     MinimizeToTrayOnClose = global.MinimizeToTrayOnClose,
@@ -167,9 +173,9 @@ namespace CourseList.Helpers
                     TodoPinWindowWidthDip = global.TodoPinWindowWidthDip,
                     TodoPinWindowHeightDip = global.TodoPinWindowHeightDip,
                     CurrentSchemeId = currentSchemeId,
-                    Schemes = schemes
+                    Schemes = schemes ?? new List<SchemeInfo>()
                 };
-                string json = JsonSerializer.Serialize(obj, _jsonOptions);
+                string json = JsonSerializer.Serialize(obj, AppJsonSerializerContext.Default.SchemesFileData);
                 File.WriteAllText(SchemesFilePath, json);
             }
             catch
@@ -372,15 +378,8 @@ namespace CourseList.Helpers
             else
             {
                 var cfgPath = GetSchemeConfigPath(newId);
-                var defaultSchemeConfig = new
-                {
-                    ScheduleWeekRange = 7,
-                    PeriodCount = 11,
-                    SemesterStartMonday = DateTime.Today,
-                    SemesterTotalWeeks = 20,
-                    PeriodTimeRanges = new List<object>()
-                };
-                File.WriteAllText(cfgPath, JsonSerializer.Serialize(defaultSchemeConfig, new JsonSerializerOptions { WriteIndented = true }));
+                var defaultSchemeConfig = new SchemeConfigSeed();
+                File.WriteAllText(cfgPath, JsonSerializer.Serialize(defaultSchemeConfig, AppJsonSerializerContext.Default.SchemeConfigSeed));
             }
 
             schemes.Add(new SchemeInfo { Id = newId, Name = name.Trim() });
@@ -404,21 +403,50 @@ namespace CourseList.Helpers
             if (idx < 0)
                 return false;
 
-            schemes.RemoveAt(idx);
-            SaveSchemes(schemes, currentId);
-
             var folder = GetSchemeFolder(schemeId);
+
+            // 先删除方案文件夹：避免“只删 json、不删目录”的不一致。
+            // 如果目录删除失败（文件被占用等），则不更新 schemes.json。
+            bool folderDeleted = false;
             if (Directory.Exists(folder))
             {
                 try
                 {
-                    Directory.Delete(folder, true);
+                    // Windows 上可能存在短暂文件句柄占用：重试几次提升成功率。
+                    const int maxRetry = 4;
+                    for (int i = 0; i < maxRetry; i++)
+                    {
+                        try
+                        {
+                            Directory.Delete(folder, true);
+                            folderDeleted = true;
+                            break;
+                        }
+                        catch
+                        {
+                            if (i == maxRetry - 1)
+                                break;
+                            System.Threading.Thread.Sleep(120);
+                        }
+                    }
                 }
                 catch
                 {
-                    // 忽略删除失败
+                    folderDeleted = false;
                 }
             }
+            else
+            {
+                // 目录不存在也认为已删除（避免卡在 UI 上）。
+                folderDeleted = true;
+            }
+
+            if (!folderDeleted)
+                return false;
+
+            // 目录删除成功后，才更新 schemes.json
+            schemes.RemoveAt(idx);
+            SaveSchemes(schemes, currentId);
             return true;
         }
 

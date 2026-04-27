@@ -55,6 +55,7 @@ namespace CourseList.Views
         private double _lastDesktopRenderHeight = double.NaN;
         private bool _desktopRenderPending;
         private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer? _desktopResizeRenderTimer;
+        private bool _desktopRerenderAfterLayoutPending;
 
         private List<WeekScheduleOverride> _weekOverrides = new();
         private Dictionary<(int courseId, int weekIndex), WeekScheduleOverride> _weekOverrideIndex = new();
@@ -96,6 +97,8 @@ namespace CourseList.Views
                 CompactScheduleContainer.SizeChanged += CompactScheduleContainer_SizeChanged;
             if (DesktopScheduleBorder != null)
                 DesktopScheduleBorder.SizeChanged += DesktopScheduleBorder_SizeChanged;
+            if (DesktopBlocksCanvas != null)
+                DesktopBlocksCanvas.SizeChanged += DesktopBlocksCanvas_SizeChanged;
 
             _desktopResizeRenderTimer = DispatcherQueue?.CreateTimer();
             if (_desktopResizeRenderTimer != null)
@@ -113,6 +116,8 @@ namespace CourseList.Views
                 CompactScheduleContainer.SizeChanged -= CompactScheduleContainer_SizeChanged;
             if (DesktopScheduleBorder != null)
                 DesktopScheduleBorder.SizeChanged -= DesktopScheduleBorder_SizeChanged;
+            if (DesktopBlocksCanvas != null)
+                DesktopBlocksCanvas.SizeChanged -= DesktopBlocksCanvas_SizeChanged;
         }
 
         private void OnSchemeChanged(object? sender, EventArgs e)
@@ -171,6 +176,10 @@ namespace CourseList.Views
                 TryApplyCompactAdaptiveSizingAndRebuild(5);
 
             WireScheduleGridDragSurface();
+
+            // 桌面模式：从其它页面首次进入/切回时，列宽可能尚未稳定，补一次延迟重绘修正对齐。
+            if (!_isCompactMode)
+                TryRerenderDesktopAfterLayout(6);
         }
 
         public void ApplyCompactMode(bool isCompact)
@@ -291,6 +300,92 @@ namespace CourseList.Views
                 return;
             _desktopRenderPending = false;
             RenderDesktopBlocks();
+        }
+
+        private void DesktopBlocksCanvas_SizeChanged(object sender, Microsoft.UI.Xaml.SizeChangedEventArgs e)
+        {
+            if (_isCompactMode || !_isPageLoaded)
+                return;
+
+            // Canvas 实际承载宽度变化时（例如导航回来/首次测量），也需要触发一次节流重绘。
+            _desktopRenderPending = true;
+            if (_desktopResizeRenderTimer == null)
+            {
+                RenderDesktopBlocks();
+                _desktopRenderPending = false;
+                return;
+            }
+
+            _desktopResizeRenderTimer.Stop();
+            _desktopResizeRenderTimer.Start();
+        }
+
+        private void TryRerenderDesktopAfterLayout(int attemptsLeft)
+        {
+            if (_isCompactMode || !_isPageLoaded)
+                return;
+
+            if (_desktopRerenderAfterLayoutPending && attemptsLeft < 2)
+                return;
+
+            _desktopRerenderAfterLayoutPending = true;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                if (_isCompactMode || !_isPageLoaded)
+                {
+                    _desktopRerenderAfterLayoutPending = false;
+                    return;
+                }
+
+                if (IsDesktopLayoutWidthStable())
+                {
+                    _desktopRerenderAfterLayoutPending = false;
+                    RenderDesktopBlocks();
+                    return;
+                }
+
+                if (attemptsLeft > 1)
+                {
+                    TryRerenderDesktopAfterLayout(attemptsLeft - 1);
+                    return;
+                }
+
+                _desktopRerenderAfterLayoutPending = false;
+                RenderDesktopBlocks();
+            });
+        }
+
+        private bool IsDesktopLayoutWidthStable()
+        {
+            try
+            {
+                if (DesktopBlocksCanvas == null || ScheduleGrid?.ColumnDefinitions == null)
+                    return false;
+
+                double canvasW = DesktopBlocksCanvas.ActualWidth;
+                if (double.IsNaN(canvasW) || canvasW <= 20)
+                    return false;
+
+                int dayColCount = _scheduleWeekRange == 5 ? 5 : 7;
+                if (ScheduleGrid.ColumnDefinitions.Count < 1 + dayColCount)
+                    return false;
+
+                double sum = 0;
+                for (int c = 1; c <= dayColCount; c++)
+                {
+                    double w = ScheduleGrid.ColumnDefinitions[c].ActualWidth;
+                    if (double.IsNaN(w) || w < 20)
+                        return false;
+                    sum += w;
+                }
+
+                // 容忍少量 rounding/scrollbar 的误差，但差太多说明还没稳定。
+                return Math.Abs(sum - canvasW) <= 12;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private bool ApplyCompactAdaptiveSizing()
@@ -542,6 +637,9 @@ namespace CourseList.Views
             RebuildBlocks();
             RenderDesktopBlocks();
             UpdateWeekNavigationUi();
+
+            // 切换周次/切换周范围/首次进入：列宽可能稍后才稳定，补一次延迟重绘避免错位。
+            TryRerenderDesktopAfterLayout(4);
         }
 
         private void BuildCompactScheduleGrid()
@@ -679,6 +777,7 @@ namespace CourseList.Views
         {
             var course = block.CourseRef;
             var courseBrush = GetCourseBrush(course.Color);
+            var textBrush = GetReadableTextBrush(courseBrush.Color);
             double opacity = block.IsActiveInWeek ? 1.0 : 0.35;
 
             var rootBorder = new Border
@@ -717,7 +816,7 @@ namespace CourseList.Views
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Foreground = WhiteBrush,
+                Foreground = textBrush,
                 FontSize = fontSizeTitle,
                 FontWeight = FontWeights.SemiBold
             });
@@ -728,7 +827,7 @@ namespace CourseList.Views
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Foreground = WhiteBrush,
+                Foreground = textBrush,
                 FontSize = fontSizeSub
             });
 
@@ -738,7 +837,7 @@ namespace CourseList.Views
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Foreground = WhiteBrush,
+                Foreground = textBrush,
                 FontSize = fontSizeSub
             });
 
@@ -749,7 +848,7 @@ namespace CourseList.Views
                     Text = "（非本周）",
                     TextWrapping = TextWrapping.NoWrap,
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = WhiteBrush,
+                    Foreground = textBrush,
                     FontSize = Math.Max(10, fontSizeSub - 2),
                     FontWeight = FontWeights.SemiBold
                 });
@@ -777,6 +876,18 @@ namespace CourseList.Views
             return rootBorder;
         }
 
+        private static SolidColorBrush GetReadableTextBrush(Color background)
+        {
+            // 按相对亮度选择黑/白字：允许更浅、更丰富的课程色，同时保持文字可读。
+            double r = background.R / 255.0;
+            double g = background.G / 255.0;
+            double b = background.B / 255.0;
+            double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            return luminance >= 0.62
+                ? new SolidColorBrush(Color.FromArgb(235, 18, 18, 18))
+                : WhiteBrush;
+        }
+
         private void DesktopBlocksCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (e.OriginalSource is DependencyObject source)
@@ -792,6 +903,10 @@ namespace CourseList.Views
         private void CourseBlock_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (sender is not Border border || border.Tag is not ScheduleBlock block)
+                return;
+
+            // 已选中的卡片再次单击：不触发任何动画（避免“先缩小再放大”的闪动）。
+            if (ReferenceEquals(border, _selectedCourseBorder))
                 return;
 
             SelectCourse(block.CourseRef, border);
@@ -1997,7 +2112,11 @@ namespace CourseList.Views
         /// </summary>
         private void SelectCourse(Course course, Border border)
         {
-            // 先清除之前的选中状态
+            // 已选中：不重复触发动画
+            if (ReferenceEquals(border, _selectedCourseBorder) && ReferenceEquals(course, SelectedCourse))
+                return;
+
+            // 清除之前的选中状态（仅针对上一个选中项做回弹动画，避免全表遍历造成闪动/卡顿）
             ClearCourseSelection();
 
             // 设置新的选中状态：只做渲染层缩放与外描边，不改变布局测量
@@ -2018,26 +2137,37 @@ namespace CourseList.Views
         /// </summary>
         private void ClearCourseSelection()
         {
+            var prevBorder = _selectedCourseBorder;
             SelectedCourse = null;
             _selectedCourseBorder = null;
 
-            if (_courseCellMap != null)
+            if (prevBorder != null)
             {
-                foreach (var cell in _courseCellMap)
+                AnimateCourseScale(prevBorder, 0.95, 200);
+                if (_selectionOverlayMap.TryGetValue(prevBorder, out var overlay))
+                    AnimateOverlayOpacity(overlay, to: 0.0, durationMs: 160);
+            }
+        }
+
+        private static void AnimateOverlayOpacity(UIElement target, double to, int durationMs)
+        {
+            try
+            {
+                var sb = new Storyboard();
+                var anim = new DoubleAnimation
                 {
-                    if (cell.Key != null)
-                    {
-                        AnimateCourseScale(cell.Key, 0.95, 180);
-                        if (_selectionOverlayMap.TryGetValue(cell.Key, out var overlay))
-                        {
-                            overlay.Opacity = 0.0;
-                            if (overlay.BorderBrush is SolidColorBrush b)
-                                b.Color = Colors.Transparent;
-                            else
-                                overlay.BorderBrush = new SolidColorBrush(Colors.Transparent);
-                        }
-                    }
-                }
+                    To = to,
+                    Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                Storyboard.SetTarget(anim, target);
+                Storyboard.SetTargetProperty(anim, "Opacity");
+                sb.Children.Add(anim);
+                sb.Begin();
+            }
+            catch
+            {
+                target.Opacity = to;
             }
         }
 
@@ -2056,16 +2186,23 @@ namespace CourseList.Views
                 border.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
             }
 
+            var storyboard = new Storyboard();
+
+            // 关键：停止旧动画可能会把 ScaleTransform 属性立刻重置为基值（例如 0.95），
+            // 如果从 Stop 之后才读取 fromX/fromY，会导致从点变成基值，从而“缩小动画消失/闪现”。
+            // 因此先捕获当前值，再停止旧 storyboard，并在此之后把当前值写回，确保动画从正确的起点开始。
+            double fromX = scaleTransform.ScaleX;
+            double fromY = scaleTransform.ScaleY;
+
             if (border.Resources.TryGetValue(CourseScaleStoryboardKey, out var existing) &&
                 existing is Storyboard existingStoryboard)
             {
                 try { existingStoryboard.Stop(); } catch { }
             }
 
-            var storyboard = new Storyboard();
-
-            double fromX = scaleTransform.ScaleX;
-            double fromY = scaleTransform.ScaleY;
+            // 避免 Stop 导致的瞬间回跳
+            scaleTransform.ScaleX = fromX;
+            scaleTransform.ScaleY = fromY;
 
             if (targetScale > Math.Max(fromX, fromY) + 0.0001)
             {
@@ -2119,6 +2256,7 @@ namespace CourseList.Views
             {
                 var animX = new DoubleAnimation
                 {
+                    From = fromX,
                     To = targetScale,
                     Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
@@ -2128,6 +2266,7 @@ namespace CourseList.Views
 
                 var animY = new DoubleAnimation
                 {
+                    From = fromY,
                     To = targetScale,
                     Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }

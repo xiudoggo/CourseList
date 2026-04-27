@@ -261,7 +261,8 @@
         <ScrollViewer Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
-                      HorizontalContentAlignment="Stretch">
+                      HorizontalContentAlignment="Stretch"
+                      PointerPressed="CourseListScrollViewer_PointerPressed">
             <!-- 顶部留白：首行卡片 hover 上移 + 缩放时仍落在可绘区域内，避免上边框被 ScrollViewer 裁切 -->
             <Grid Padding="0,16,0,0">
                 <muxc:ItemsRepeater x:Name="CourseRepeater"

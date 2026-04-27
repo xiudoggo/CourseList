@@ -300,6 +300,9 @@ namespace CourseList.Views
 
         private void ScheduleApplyFilters()
         {
+            // 使用筛选后需要先取消当前选中，避免出现“奇怪的问题”（比如重建列表后 selected 指向旧卡片）。
+            ClearCurrentCourseSelection();
+
             EnsureApplyFiltersTimer();
             if (_applyFiltersTimer == null)
             {
@@ -318,8 +321,10 @@ namespace CourseList.Views
             if (CourseRepeater == null || EmptyText == null)
                 return;
 
-            // 刷新后旧的 Border 引用已失效，避免对不存在的 UI 做修改
-            _selectedCardBorder = null;
+            // 这里不需要额外处理 _selectedCardBorder：ScheduleApplyFilters() 会先统一清除选中状态。
+            // 但仍保留兼容：防止某些初始化阶段未触发 ScheduleApplyFilters 时导致状态不一致。
+            if (_selectedCardBorder != null)
+                ClearCurrentCourseSelection();
 
             IEnumerable<Course> query = _courses;
 
@@ -351,6 +356,48 @@ namespace CourseList.Views
             foreach (var c in filtered)
                 _filteredCourses.Add(c);
             EmptyText.Visibility = filtered.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void ClearCurrentCourseSelection()
+        {
+            _selectedCourse = null;
+            if (_selectedCardBorder != null)
+            {
+                try
+                {
+                    RestoreCourseCardDefaultVisual(_selectedCardBorder);
+                }
+                catch
+                {
+                    // ignore
+                }
+                _selectedCardBorder = null;
+            }
+        }
+
+        private static Border? FindParentCourseCardBorder(DependencyObject? element)
+        {
+            while (element != null)
+            {
+                if (element is Border b && b.Tag is Course)
+                    return b;
+                element = VisualTreeHelper.GetParent(element);
+            }
+            return null;
+        }
+
+        private void CourseListScrollViewer_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            // 点击列表空白处取消选中；点击卡片本身则由卡片的 PointerPressed 负责选中。
+            if (e.OriginalSource is DependencyObject source)
+            {
+                var cardBorder = FindParentCourseCardBorder(source);
+                if (cardBorder != null)
+                    return;
+            }
+
+            ClearCurrentCourseSelection();
+            e.Handled = true;
         }
 
         private void SearchBox_TextChanged(object sender, Microsoft.UI.Xaml.Controls.TextChangedEventArgs e)

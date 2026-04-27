@@ -162,6 +162,15 @@ namespace CourseList.Helpers
 
     public static class ConfigHelper
     {
+        internal sealed class SchemeConfigData
+        {
+            public int ScheduleWeekRange { get; set; } = 7;
+            public int PeriodCount { get; set; } = 11;
+            public DateTime SemesterStartMonday { get; set; } = DateTime.Today;
+            public int SemesterTotalWeeks { get; set; } = 20;
+            public List<PeriodTimeRange> PeriodTimeRanges { get; set; } = new();
+        }
+
         private const int MaxPeriodCount = 20;
         private const int MaxSemesterWeeks = 30;
         private const double MaxTodoPinWindowWidthDip = 1600;
@@ -251,7 +260,7 @@ namespace CourseList.Helpers
             try
             {
                 var json = File.ReadAllText(path);
-                return JsonSerializer.Deserialize<AppConfig>(json) ?? new AppConfig();
+                return JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.AppConfig) ?? new AppConfig();
             }
             catch
             {
@@ -301,18 +310,16 @@ namespace CourseList.Helpers
                     var dir = Path.GetDirectoryName(schemePath);
                     if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                         Directory.CreateDirectory(dir);
-                    var schemeJson = JsonSerializer.Serialize(new
-                    {
-                        normalized.ScheduleWeekRange,
-                        normalized.PeriodCount,
-                        normalized.SemesterStartMonday,
-                        normalized.SemesterTotalWeeks,
-                        normalized.PeriodTimeRanges
-                    }, new JsonSerializerOptions
-                    {
-                        WriteIndented = true,
-                        Converters = { new PeriodTimeRangeJsonConverter() }
-                    });
+                    var schemeJson = JsonSerializer.Serialize(
+                        new SchemeConfigData
+                        {
+                            ScheduleWeekRange = normalized.ScheduleWeekRange,
+                            PeriodCount = normalized.PeriodCount,
+                            SemesterStartMonday = normalized.SemesterStartMonday,
+                            SemesterTotalWeeks = normalized.SemesterTotalWeeks,
+                            PeriodTimeRanges = normalized.PeriodTimeRanges ?? new List<PeriodTimeRange>()
+                        },
+                        AppJsonSerializerContext.Default.SchemeConfigData);
                     File.WriteAllText(schemePath, schemeJson);
                 }
 

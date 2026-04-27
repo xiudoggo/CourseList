@@ -10,6 +10,7 @@ using CourseList.Helpers.Ui;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using System.Threading.Tasks;
+using System.IO;
 
 
 
@@ -58,6 +59,7 @@ namespace CourseList
             var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(windowId);
             _appWindow.Closing += AppWindow_Closing;
+            TryApplyWindowIcon();
 
             // 标准高度标题栏：与内置 PaneToggle 尺寸一致；先设 PreferredHeightOption，再 SetTitleBar
             ApplyStandardTitleBarChrome();
@@ -171,6 +173,22 @@ namespace CourseList
             catch
             {
                 // 忽略兼容性异常
+            }
+        }
+
+        private void TryApplyWindowIcon()
+        {
+            if (_appWindow == null)
+                return;
+            try
+            {
+                var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "CourseList.ico");
+                if (File.Exists(iconPath))
+                    _appWindow.SetIcon(iconPath);
+            }
+            catch
+            {
+                // ignore and fallback to default icon
             }
         }
 

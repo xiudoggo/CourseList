@@ -8,11 +8,13 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using Microsoft.UI.Xaml.Shapes;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Windows.Foundation;
 using Windows.Graphics;
 using Windows.UI;
 using Windows.ApplicationModel.DataTransfer;
@@ -48,6 +50,10 @@ public sealed partial class TodoPinWindow : Window
     public bool IsDisposed { get; private set; }
     private readonly bool _isSizingMode;
     private readonly Action<double, double>? _onSizingConfirmed;
+    private bool _bottomDragActive;
+    private POINT _bottomDragStartCursor;
+    private PointInt32 _bottomDragStartWindowPos;
+    private bool _bottomDragHasWindowPos;
 
     public TodoPinWindow(
         bool autoActivate = true,
@@ -120,6 +126,27 @@ public sealed partial class TodoPinWindow : Window
             RootTabView.Visibility = Visibility.Collapsed;
             SizingOverlay.Visibility = Visibility.Visible;
         }
+        else
+        {
+            // 底部拖拽条：用 Win32 方式启动窗口拖拽，不影响 Tab 拖出/合并。
+            if (BottomDragBar != null)
+            {
+                BottomDragBar.PointerPressed -= BottomDragBar_PointerPressed;
+                BottomDragBar.PointerPressed += BottomDragBar_PointerPressed;
+                BottomDragBar.PointerMoved -= BottomDragBar_PointerMoved;
+                BottomDragBar.PointerMoved += BottomDragBar_PointerMoved;
+                BottomDragBar.PointerReleased -= BottomDragBar_PointerReleased;
+                BottomDragBar.PointerReleased += BottomDragBar_PointerReleased;
+                BottomDragBar.PointerCanceled -= BottomDragBar_PointerCanceled;
+                BottomDragBar.PointerCanceled += BottomDragBar_PointerCanceled;
+                BottomDragBar.PointerCaptureLost -= BottomDragBar_PointerCaptureLost;
+                BottomDragBar.PointerCaptureLost += BottomDragBar_PointerCaptureLost;
+            }
+
+            // 额外兜底：即使底部条没收到 Released，只要窗口内容收到 Released 就结束拖拽。
+            RootLayoutGrid.PointerReleased -= RootLayoutGrid_PointerReleased;
+            RootLayoutGrid.PointerReleased += RootLayoutGrid_PointerReleased;
+        }
 
         ApplyThemeFromMain();
         RootTabView.Loaded += RootTabView_Loaded;
@@ -140,7 +167,7 @@ public sealed partial class TodoPinWindow : Window
         TryApplyConfiguredClientSize();
         try
         {
-            // 延后注册拖动矩形，避免首次布局时区域大小为 0。
+            // 仅使用顶部拖拽条作为 TitleBar 拖拽区域，避免影响 TabView 的拖出/合并手势。
             SetTitleBar(PinWindowDragRegion);
         }
         catch
@@ -154,6 +181,107 @@ public sealed partial class TodoPinWindow : Window
             _appWindow.Changed += AppWindow_Changed;
             UpdateSizingPreviewText();
         }
+    }
+
+    private void BottomDragBar_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not UIElement el)
+                return;
+            var pt = e.GetCurrentPoint(el);
+            if (!pt.Properties.IsLeftButtonPressed)
+                return;
+
+            e.Handled = true;
+
+            if (_appWindow != null)
+            {
+                _bottomDragStartWindowPos = _appWindow.Position;
+                _bottomDragHasWindowPos = true;
+            }
+            else
+            {
+                _bottomDragHasWindowPos = false;
+            }
+
+            _ = GetCursorPos(out _bottomDragStartCursor);
+            _bottomDragActive = true;
+            el.CapturePointer(e.Pointer);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private void BottomDragBar_PointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_bottomDragActive || _appWindow == null || !_bottomDragHasWindowPos)
+            return;
+        try
+        {
+            // 兜底：如果由于系统/窗口边界导致没有触发 PointerReleased，
+            // 这里检测到左键已松开就立刻结束拖拽，避免进入“松开还跟随”的状态。
+            if (sender is UIElement el)
+            {
+                var pt = e.GetCurrentPoint(el);
+                if (!pt.Properties.IsLeftButtonPressed)
+                {
+                    EndBottomDrag(sender, e);
+                    return;
+                }
+            }
+
+            _ = GetCursorPos(out POINT p);
+            int dx = p.X - _bottomDragStartCursor.X;
+            int dy = p.Y - _bottomDragStartCursor.Y;
+
+            // 直接 Move：不进入系统移动模态，松开即停。
+            _appWindow.Move(new PointInt32(_bottomDragStartWindowPos.X + dx, _bottomDragStartWindowPos.Y + dy));
+            e.Handled = true;
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private void BottomDragBar_PointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        EndBottomDrag(sender, e);
+    }
+
+    private void BottomDragBar_PointerCanceled(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        EndBottomDrag(sender, e);
+    }
+
+    private void BottomDragBar_PointerCaptureLost(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        EndBottomDrag(sender, e);
+    }
+
+    private void EndBottomDrag(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_bottomDragActive)
+            return;
+        _bottomDragActive = false;
+        _bottomDragHasWindowPos = false;
+        try
+        {
+            if (sender is UIElement el)
+                el.ReleasePointerCapture(e.Pointer);
+        }
+        catch { }
+        e.Handled = true;
+    }
+
+    private void RootLayoutGrid_PointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_bottomDragActive)
+            return;
+        EndBottomDrag(BottomDragBar ?? sender, e);
     }
 
     // bottom close button removed; we rely on TabView item close.
@@ -537,7 +665,7 @@ public sealed class TodoPinViewPage : Page
     private readonly TextBlock _contentText;
     private readonly TextBlock _dueDateText;
     private readonly TextBlock _tagsHeader;
-    private readonly StackPanel _tagsPanel;
+    private readonly ItemsRepeater _tagsRepeater;
     private readonly TagNameToBrushConverter _tagBrushConverter = new();
 
     private TodoPinSession? _session;
@@ -554,13 +682,16 @@ public sealed class TodoPinViewPage : Page
         var scroll = new ScrollViewer
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollMode = ScrollMode.Enabled
+            VerticalScrollMode = ScrollMode.Enabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollMode = ScrollMode.Disabled,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
         var grid = new Grid
         {
             Padding = new Thickness(16),
-            MaxWidth = 480,
-            RowSpacing = 12
+            RowSpacing = 12,
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
         for (int i = 0; i < 7; i++)
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -570,7 +701,9 @@ public sealed class TodoPinViewPage : Page
             Text = "待办",
             FontSize = 20,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            TextAlignment = TextAlignment.Left
         };
         Grid.SetRow(_titleText, 0);
 
@@ -588,14 +721,18 @@ public sealed class TodoPinViewPage : Page
             FontSize = 12,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
-            HorizontalAlignment = HorizontalAlignment.Center
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 1
         };
         var priorityBorder = new Border
         {
             VerticalAlignment = VerticalAlignment.Center,
             Padding = new Thickness(8, 4, 8, 4),
             CornerRadius = new CornerRadius(6),
-            MinWidth = 44,
+            MinWidth = 52,
+            HorizontalAlignment = HorizontalAlignment.Right,
             Background = _priorityBrush,
             Child = _priorityLabel
         };
@@ -603,6 +740,7 @@ public sealed class TodoPinViewPage : Page
         var row1 = new Grid { ColumnSpacing = 12 };
         row1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row1.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row1.HorizontalAlignment = HorizontalAlignment.Stretch;
         Grid.SetColumn(_completedCheckBox, 0);
         Grid.SetColumn(priorityBorder, 1);
         row1.Children.Add(_completedCheckBox);
@@ -622,7 +760,9 @@ public sealed class TodoPinViewPage : Page
         {
             TextWrapping = TextWrapping.Wrap,
             FontSize = 14,
-            IsTextSelectionEnabled = true
+            IsTextSelectionEnabled = true,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            TextAlignment = TextAlignment.Left
         };
         Grid.SetRow(_contentText, 3);
 
@@ -635,19 +775,17 @@ public sealed class TodoPinViewPage : Page
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             FontSize = 12
         };
-        var tagsScroll = new ScrollViewer
-        {
-            HorizontalScrollMode = ScrollMode.Enabled,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollMode = ScrollMode.Disabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
-        };
-
-        _tagsPanel = new StackPanel { Spacing = 6, Orientation = Orientation.Horizontal };
-        tagsScroll.Content = _tagsPanel;
         var tagsStack = new StackPanel { Spacing = 6 };
+        tagsStack.HorizontalAlignment = HorizontalAlignment.Stretch;
         tagsStack.Children.Add(_tagsHeader);
-        tagsStack.Children.Add(tagsScroll);
+        _tagsRepeater = new ItemsRepeater
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Top,
+            Layout = new FlowWrapLayout { HorizontalSpacing = 6, VerticalSpacing = 6 },
+            ItemTemplate = new TagElementFactory(this)
+        };
+        tagsStack.Children.Add(_tagsRepeater);
         Grid.SetRow(tagsStack, 5);
 
         grid.Children.Add(_titleText);
@@ -657,6 +795,7 @@ public sealed class TodoPinViewPage : Page
         grid.Children.Add(tagsStack);
 
         scroll.Content = grid;
+
         Content = scroll;
 
         Loaded += async (_, _) =>
@@ -740,17 +879,22 @@ public sealed class TodoPinViewPage : Page
             }
             _priorityLabel.Text = todo.PriorityDisplayName;
             _priorityBrush.Color = todo.PriorityEndColor;
+            // 避免空文本导致徽标“挤成一条线/贴边”产生错觉。
+            // PriorityDisplayName 理论上总有值；这里兜底。
+            // priorityBorder 是局部变量，直接通过 _priorityLabel 控制可见性即可。
+            if (string.IsNullOrWhiteSpace(_priorityLabel.Text))
+                _priorityLabel.Text = "—";
             _completedCheckBox.IsChecked = todo.Completed;
             if (todo.Tags is { Count: > 0 })
             {
                 _tagsHeader.Visibility = Visibility.Visible;
-                _tagsPanel.Visibility = Visibility.Visible;
+                _tagsRepeater.Visibility = Visibility.Visible;
                 RebuildTags(todo.Tags);
             }
             else
             {
                 _tagsHeader.Visibility = Visibility.Collapsed;
-                _tagsPanel.Visibility = Visibility.Collapsed;
+                _tagsRepeater.Visibility = Visibility.Collapsed;
                 RebuildTags(Array.Empty<string>());
             }
         }
@@ -762,14 +906,26 @@ public sealed class TodoPinViewPage : Page
 
     private void RebuildTags(IReadOnlyList<string> tags)
     {
-        _tagsPanel.Children.Clear();
-        foreach (var tag in tags)
-        {
-            if (string.IsNullOrWhiteSpace(tag))
-                continue;
-            var brushObj = _tagBrushConverter.Convert(tag.Trim(), typeof(Brush), null!, string.Empty);
-            var bg = brushObj as Brush ?? new SolidColorBrush(Color.FromArgb(255, 136, 136, 136));
+        var list = tags?
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .ToList() ?? new List<string>();
 
+        _tagsRepeater.ItemsSource = list;
+    }
+
+    private sealed class TagElementFactory : IElementFactory
+    {
+        private readonly TodoPinViewPage _page;
+
+        public TagElementFactory(TodoPinViewPage page)
+        {
+            _page = page;
+        }
+
+        public UIElement GetElement(ElementFactoryGetArgs args)
+        {
             var border = new Border
             {
                 MinHeight = 22,
@@ -777,15 +933,14 @@ public sealed class TodoPinViewPage : Page
                 Padding = new Thickness(8, 3, 8, 3),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 MaxWidth = 400,
-                Background = bg,
                 BorderThickness = new Thickness(1)
             };
-            if (ThemeResourceHelper.TryGetThemeBrush(this, "ControlStrokeColorDefaultBrush", out var stroke) && stroke != null)
+
+            if (ThemeResourceHelper.TryGetThemeBrush(_page, "ControlStrokeColorDefaultBrush", out var stroke) && stroke != null)
                 border.BorderBrush = stroke;
 
-            border.Child = new TextBlock
+            var text = new TextBlock
             {
-                Text = tag,
                 FontSize = 11,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
@@ -794,8 +949,23 @@ public sealed class TodoPinViewPage : Page
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center
             };
+            border.Child = text;
 
-            _tagsPanel.Children.Add(border);
+            // 初次生成时就根据 Data 绑定颜色与文本（不依赖 Loaded 事件，减少错位/延迟）。
+            if (args.Data is string tag && !string.IsNullOrWhiteSpace(tag))
+            {
+                var t = tag.Trim();
+                text.Text = t;
+                var brushObj = _page._tagBrushConverter.Convert(t, typeof(Brush), null!, string.Empty);
+                border.Background = brushObj as Brush ?? new SolidColorBrush(Color.FromArgb(255, 136, 136, 136));
+            }
+
+            return border;
+        }
+
+        public void RecycleElement(ElementFactoryRecycleArgs args)
+        {
+            // No-op: elements are cheap; keep default recycling behavior.
         }
     }
 
@@ -847,4 +1017,5 @@ public sealed class TodoPinViewPage : Page
             _loading = false;
         }
     }
+
 }

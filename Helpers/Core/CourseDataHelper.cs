@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
-using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Linq;
@@ -39,12 +38,6 @@ namespace CourseList.Helpers
 
         // 防止多个异步保存同时写入导致文件内容被“旧数据”覆盖
         private static readonly SemaphoreSlim _saveSemaphore = new SemaphoreSlim(1, 1);
-
-        private static readonly JsonSerializerOptions _saveOptions = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        };
 
         // 去抖：把短时间内多次 Save 合并为一次真实落盘
         private static readonly object _debounceLock = new object();
@@ -89,7 +82,7 @@ namespace CourseList.Helpers
                 }
 
                 string json = await File.ReadAllTextAsync(courseFilePath);
-                var courses = JsonSerializer.Deserialize<List<Course>>(json)
+                var courses = JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.ListCourse)
                               ?? new List<Course>();
                 NormalizeCourseWeeks(courses);
 
@@ -157,7 +150,7 @@ namespace CourseList.Helpers
                                 schemeId = _pendingSchemeId;
                             }
 
-                            string json = JsonSerializer.Serialize(pending, _saveOptions);
+                            string json = JsonSerializer.Serialize(pending, AppJsonSerializerContext.Default.ListCourse);
 
                             await _saveSemaphore.WaitAsync();
                             try
@@ -198,7 +191,7 @@ namespace CourseList.Helpers
                 PathHelper.EnsureFolderExists();
                 NormalizeCourseWeeks(courses);
                 var snapshot = (courses ?? new List<Course>()).ToList();
-                var json = JsonSerializer.Serialize(snapshot, _saveOptions);
+                var json = JsonSerializer.Serialize(snapshot, AppJsonSerializerContext.Default.ListCourse);
 
                 var path = string.IsNullOrWhiteSpace(schemeId)
                     ? GetCourseFilePath()

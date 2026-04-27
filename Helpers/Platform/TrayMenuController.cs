@@ -141,7 +141,8 @@ namespace CourseList.Helpers
         {
             try
             {
-                string iconPath = PathHelper.GetFullPath(@"Assets/CourseList.ico");
+                var baseDir = AppContext.BaseDirectory;
+                var iconPath = System.IO.Path.Combine(baseDir, "Assets", "CourseList.ico");
                 if (System.IO.File.Exists(iconPath))
                 {
                     const uint IMAGE_ICON = 1;
